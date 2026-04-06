@@ -10,7 +10,7 @@
 
 ## Phase 1 — Azure MVP: Read-Only Investigation
 
-**Status**: Planning Complete — Implementation Not Started
+**Status**: Core Implementation Complete
 **Duration**: 6-8 weeks
 **Goal**: Prove the orchestrator + agent pattern works against real Azure data
 
@@ -19,36 +19,57 @@
 | Component | Status | Notes |
 |-----------|--------|-------|
 | Project skeleton (Cargo workspace) | Done | Workspace with 5 crates |
-| Orchestrator (workflow state machine, routing, fan-out) | Not Started | `crates/orchestrator/` |
-| TriageAgent (alert parsing, severity classification) | Not Started | `crates/agents/src/triage.rs` |
-| LogsAgent (KQL against Log Analytics) | Not Started | `crates/agents/src/logs.rs` |
-| MetricsAgent (KQL against App Insights) | Not Started | `crates/agents/src/metrics.rs` |
-| AzureQueryClient (shared KQL executor) | Not Started | `crates/azure/src/query_client.rs` |
-| AzureAlertsClient (alert ingestion) | Not Started | `crates/azure/src/alerts_client.rs` |
-| KQL Templates (parameterized queries) | Not Started | `crates/azure/src/kql_templates.rs` |
-| Common Alert Schema webhook handler | Not Started | `src/webhook.rs` |
-| CLI interface (manual investigation trigger) | Not Started | `src/main.rs` |
-| SQLite state store | Not Started | `crates/store/` |
+| Orchestrator (workflow state machine, routing, fan-out) | Done | `crates/orchestrator/` — per-investigation channels (ADR-006) |
+| TriageAgent (alert parsing, severity classification) | Done | `crates/agents/src/triage.rs` |
+| LogsAgent (KQL against Log Analytics) | Done | `crates/agents/src/logs.rs` |
+| MetricsAgent (KQL against App Insights) | Done | `crates/agents/src/metrics.rs` |
+| AzureQueryClient (shared KQL executor) | Done | `crates/azure/src/query_client.rs` — base URL injection for testing |
+| AzureAlertsClient (alert ingestion) | Done | `crates/azure/src/alerts_client.rs` |
+| KQL Templates (parameterized queries) | Done | `crates/azure/src/kql_templates.rs` |
+| Common Alert Schema webhook handler | Skeleton | `src/webhook.rs` — parses alerts, TODO: wire to orchestrator |
+| CLI interface (manual investigation trigger) | Done | `src/main.rs` |
+| SQLite state store | Done | `crates/store/` — auto-creates DB, full audit trail |
+| Config-driven auth mode | Done | `azure.auth_mode = "mock" \| "azure"` in config |
 | OpenTelemetry instrumentation | Not Started | Across all crates |
+
+### Code Review Fixes (2026-04-06)
+
+| Issue | Severity | Status | Fix |
+|-------|----------|--------|-----|
+| Shared inbox race condition | Blocker | Fixed | Per-investigation reply channels (ADR-006) |
+| Dead mock-auth fallback path | Blocker | Fixed | Config-driven `auth_mode` field in `AzureConfig` |
+| Query client tests bypass real client | Blocker | Fixed | Base URL injection + wiremock tests exercise actual `AzureQueryClient` |
+| Duration cast i64→u64 without bounds | Suggestion | Fixed | `.max(0)` guard in `workflow.rs` |
+| Agent bootstrap code repetition | Suggestion | Fixed | `spawn_agent()` helper in `main.rs` |
+
+### Test Coverage
+
+- **48 tests** across all crates (up from 46)
+- Store layer: 12 tests (CRUD, state transitions, event log)
+- Agent layer: 11 tests (triage, logs, metrics, capabilities)
+- Azure layer: 16 tests (query client via wiremock, alert parsing, KQL templates)
+- Orchestrator: 9 tests (full investigation flow, state persistence, aggregation)
 
 ### Exit Criteria
 
 - [ ] Webhook receives Azure alert -> investigation completes in < 60s
-- [ ] TriageAgent correctly classifies severity and affected resource
+- [x] TriageAgent correctly classifies severity and affected resource
 - [ ] LogsAgent returns relevant error patterns from Log Analytics
 - [ ] MetricsAgent returns latency/error-rate analysis from App Insights
-- [ ] Parallel agent execution (LogsAgent + MetricsAgent run concurrently)
-- [ ] Full audit trail in SQLite for every investigation
-- [ ] Structured JSON findings report generated per investigation
-- [ ] Agent timeout + circuit breaking works
+- [x] Parallel agent execution (LogsAgent + MetricsAgent run concurrently)
+- [x] Full audit trail in SQLite for every investigation
+- [x] Structured JSON findings report generated per investigation
+- [x] Agent timeout + circuit breaking works
 - [ ] CI pipeline builds and tests pass
 
 ### Key Decisions
 
 - In-process only (tokio::spawn + mpsc channels)
+- Per-investigation reply channels eliminate shared-inbox race (ADR-006)
 - KQL templates, not freeform queries (cost + safety)
 - Read-only (no write operations against Azure)
 - SQLite for zero-ops persistence
+- Config-driven auth mode (`mock` for dev, `azure` for production)
 - No LLM reasoning (rule-based triage, template-driven analysis)
 
 ---
@@ -135,9 +156,10 @@
 |-----|-------|--------|
 | [ADR-001](adr/001-rust-orchestrator-subagent-pattern.md) | Rust + Orchestrator-SubAgent Pattern | Accepted |
 | [ADR-002](adr/002-azure-first-observability-stack.md) | Azure-First Observability Stack | Accepted |
-| [ADR-003](adr/003-event-driven-agent-communication.md) | Event-Driven Agent Communication | Accepted |
+| [ADR-003](adr/003-event-driven-agent-communication.md) | Event-Driven Agent Communication | Accepted (amended by ADR-006) |
 | [ADR-004](adr/004-read-only-phase1-safety-model.md) | Read-Only Phase 1 Safety Model | Accepted |
 | [ADR-005](adr/005-kql-template-driven-queries.md) | KQL Template-Driven Queries | Accepted |
+| [ADR-006](adr/006-per-investigation-reply-channels.md) | Per-Investigation Reply Channels | Accepted |
 
 ---
 
@@ -148,4 +170,4 @@
 | Azure API throttling (200 req/min) | High | Rate limiter (governor crate), query budgets per agent |
 | KQL query cost on large workspaces | Medium | Timespan limits, row caps, parameterized templates |
 | Agent platform down during incident | Critical | 99.9% availability SLO, graceful degradation, circuit breaking |
-| Token/credential management | High | Managed Identity in Azure, DefaultAzureCredential fallback |
+| Token/credential management | High | Managed Identity in Azure, config-driven auth mode (mock for dev) |

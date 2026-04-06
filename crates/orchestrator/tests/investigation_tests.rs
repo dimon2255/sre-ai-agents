@@ -25,7 +25,6 @@ async fn setup() -> (Orchestrator, Vec<tokio::task::JoinHandle<()>>, TempDir) {
     let query_client = Arc::new(AzureQueryClient::new(credential));
 
     let config = PlatformConfig::default();
-    let (orch_tx, orch_rx) = mpsc::channel::<AgentMessage>(256);
     let mut router = AgentRouter::new();
     let mut handles = Vec::new();
 
@@ -38,8 +37,7 @@ async fn setup() -> (Orchestrator, Vec<tokio::task::JoinHandle<()>>, TempDir) {
         sender: tx,
         capabilities: agent.capabilities(),
     });
-    let outbox = orch_tx.clone();
-    handles.push(tokio::spawn(async move { agent.run(rx, outbox).await.unwrap() }));
+    handles.push(tokio::spawn(async move { agent.run(rx).await.unwrap() }));
 
     // LogsAgent
     let (tx, rx) = mpsc::channel(64);
@@ -50,8 +48,7 @@ async fn setup() -> (Orchestrator, Vec<tokio::task::JoinHandle<()>>, TempDir) {
         sender: tx,
         capabilities: agent.capabilities(),
     });
-    let outbox = orch_tx.clone();
-    handles.push(tokio::spawn(async move { agent.run(rx, outbox).await.unwrap() }));
+    handles.push(tokio::spawn(async move { agent.run(rx).await.unwrap() }));
 
     // MetricsAgent
     let (tx, rx) = mpsc::channel(64);
@@ -62,10 +59,9 @@ async fn setup() -> (Orchestrator, Vec<tokio::task::JoinHandle<()>>, TempDir) {
         sender: tx,
         capabilities: agent.capabilities(),
     });
-    let outbox = orch_tx.clone();
-    handles.push(tokio::spawn(async move { agent.run(rx, outbox).await.unwrap() }));
+    handles.push(tokio::spawn(async move { agent.run(rx).await.unwrap() }));
 
-    let orchestrator = Orchestrator::new(config, router, orch_rx, store, event_log);
+    let orchestrator = Orchestrator::new(config, router, store, event_log);
     (orchestrator, handles, dir)
 }
 
@@ -166,7 +162,6 @@ async fn test_workflow_state_persisted() {
         Arc::new(MockTokenProvider::new("test-token"));
     let query_client = Arc::new(AzureQueryClient::new(credential));
     let config = PlatformConfig::default();
-    let (orch_tx, orch_rx) = mpsc::channel(256);
     let mut router = AgentRouter::new();
 
     // Only register triage for this test
@@ -178,8 +173,7 @@ async fn test_workflow_state_persisted() {
         sender: tx,
         capabilities: agent.capabilities(),
     });
-    let outbox = orch_tx.clone();
-    tokio::spawn(async move { agent.run(rx, outbox).await.unwrap() });
+    tokio::spawn(async move { agent.run(rx).await.unwrap() });
 
     // LogsAgent + MetricsAgent for the fan-out
     let (tx, rx) = mpsc::channel(64);
@@ -190,8 +184,7 @@ async fn test_workflow_state_persisted() {
         sender: tx,
         capabilities: agent.capabilities(),
     });
-    let outbox = orch_tx.clone();
-    tokio::spawn(async move { agent.run(rx, outbox).await.unwrap() });
+    tokio::spawn(async move { agent.run(rx).await.unwrap() });
 
     let (tx, rx) = mpsc::channel(64);
     let agent = MetricsAgent::new(query_client.clone(), vec![]);
@@ -201,10 +194,9 @@ async fn test_workflow_state_persisted() {
         sender: tx,
         capabilities: agent.capabilities(),
     });
-    let outbox = orch_tx.clone();
-    tokio::spawn(async move { agent.run(rx, outbox).await.unwrap() });
+    tokio::spawn(async move { agent.run(rx).await.unwrap() });
 
-    let mut orchestrator = Orchestrator::new(config, router, orch_rx, store.clone(), event_log);
+    let mut orchestrator = Orchestrator::new(config, router, store.clone(), event_log);
 
     let alert = make_alert("test-service", AlertSeverity::Sev2);
     let report = orchestrator.investigate(alert).await.unwrap();

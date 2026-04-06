@@ -55,7 +55,15 @@ fn sample_empty_response() -> serde_json::Value {
     })
 }
 
-// ─── Query Client Tests ───
+/// Helper: create an AzureQueryClient pointed at the mock server
+fn test_client(mock_uri: &str) -> AzureQueryClient {
+    let credential = Arc::new(MockTokenProvider::new("test-token"));
+    AzureQueryClient::new(credential)
+        .with_log_analytics_base_url(mock_uri)
+        .with_app_insights_base_url(mock_uri)
+}
+
+// ─── Query Client Tests (exercising real AzureQueryClient code) ───
 
 #[tokio::test]
 async fn test_query_log_analytics_success() {
@@ -86,28 +94,12 @@ async fn test_query_log_analytics_success() {
         .mount(&mock_server)
         .await;
 
-    // Create client pointing at mock server
-    let credential = Arc::new(MockTokenProvider::new("test-token"));
-    let client = AzureQueryClient::new(credential);
+    let client = test_client(&mock_server.uri());
 
-    // Override URL by querying the mock server directly
-    // We test the internal execute method indirectly through the public API
-    // For this test, we use the mock server URL in place of the real Azure endpoint
-    let response = reqwest::Client::new()
-        .post(format!(
-            "{}/v1/workspaces/test-workspace/query",
-            mock_server.uri()
-        ))
-        .bearer_auth("test-token")
-        .json(&serde_json::json!({
-            "query": "AppExceptions | where TimeGenerated > ago(30m)",
-            "timespan": "PT30M"
-        }))
-        .send()
+    let result = client
+        .query_log_analytics("test-workspace", "AppExceptions | where TimeGenerated > ago(30m)", "PT30M")
         .await
         .unwrap();
-
-    let result: sre_azure::models::KqlQueryResponse = response.json().await.unwrap();
 
     assert_eq!(result.tables.len(), 1);
     assert_eq!(result.tables[0].row_count(), 2);
@@ -125,22 +117,18 @@ async fn test_query_returns_empty_results() {
 
     Mock::given(method("POST"))
         .and(path_regex("/v1/workspaces/.*/query"))
+        .and(header("authorization", "Bearer test-token"))
         .respond_with(ResponseTemplate::new(200).set_body_json(sample_empty_response()))
         .mount(&mock_server)
         .await;
 
-    let response = reqwest::Client::new()
-        .post(format!(
-            "{}/v1/workspaces/test-workspace/query",
-            mock_server.uri()
-        ))
-        .bearer_auth("token")
-        .json(&serde_json::json!({"query": "test", "timespan": "PT1H"}))
-        .send()
+    let client = test_client(&mock_server.uri());
+
+    let result = client
+        .query_log_analytics("test-workspace", "test query", "PT1H")
         .await
         .unwrap();
 
-    let result: sre_azure::models::KqlQueryResponse = response.json().await.unwrap();
     assert_eq!(result.tables[0].row_count(), 0);
 }
 
@@ -154,18 +142,17 @@ async fn test_query_handles_rate_limiting() {
         .mount(&mock_server)
         .await;
 
-    let response = reqwest::Client::new()
-        .post(format!(
-            "{}/v1/workspaces/test-workspace/query",
-            mock_server.uri()
-        ))
-        .bearer_auth("token")
-        .json(&serde_json::json!({"query": "test", "timespan": "PT1H"}))
-        .send()
-        .await
-        .unwrap();
+    let client = test_client(&mock_server.uri());
 
-    assert_eq!(response.status(), 429);
+    let result = client
+        .query_log_analytics("test-workspace", "test query", "PT1H")
+        .await;
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        sre_common::errors::AzureError::RateLimited => {} // expected
+        other => panic!("Expected RateLimited, got: {other}"),
+    }
 }
 
 #[tokio::test]
@@ -185,48 +172,90 @@ async fn test_query_handles_server_error() {
         .mount(&mock_server)
         .await;
 
-    let response = reqwest::Client::new()
-        .post(format!(
-            "{}/v1/workspaces/test-workspace/query",
-            mock_server.uri()
-        ))
-        .bearer_auth("token")
-        .json(&serde_json::json!({"query": "test", "timespan": "PT1H"}))
-        .send()
-        .await
-        .unwrap();
+    let client = test_client(&mock_server.uri());
 
-    assert_eq!(response.status(), 500);
+    let result = client
+        .query_log_analytics("test-workspace", "test query", "PT1H")
+        .await;
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        sre_common::errors::AzureError::ApiError { status, .. } => {
+            assert_eq!(status, 500);
+        }
+        other => panic!("Expected ApiError, got: {other}"),
+    }
 }
 
 #[tokio::test]
-async fn test_latency_response_parsing() {
+async fn test_query_app_insights_success() {
     let mock_server = MockServer::start().await;
 
     Mock::given(method("POST"))
         .and(path_regex("/v1/apps/.*/query"))
+        .and(header("authorization", "Bearer test-token"))
         .respond_with(ResponseTemplate::new(200).set_body_json(sample_latency_response()))
         .mount(&mock_server)
         .await;
 
-    let response = reqwest::Client::new()
-        .post(format!(
-            "{}/v1/apps/test-app/query",
-            mock_server.uri()
-        ))
-        .bearer_auth("token")
-        .json(&serde_json::json!({"query": "AppRequests", "timespan": "PT30M"}))
-        .send()
+    let client = test_client(&mock_server.uri());
+
+    let result = client
+        .query_app_insights("test-app", "AppRequests | summarize ...", "PT30M")
         .await
         .unwrap();
 
-    let result: sre_azure::models::KqlQueryResponse = response.json().await.unwrap();
     let records = result.tables[0].to_records();
-
     assert_eq!(records.len(), 2);
     assert_eq!(records[0]["P95"], 250.0);
     assert_eq!(records[0]["FailureRate"], 2.5);
     assert_eq!(records[0]["TotalRequests"], 1500);
+}
+
+#[tokio::test]
+async fn test_query_injects_bearer_token() {
+    let mock_server = MockServer::start().await;
+
+    // Only match requests with the correct bearer token
+    Mock::given(method("POST"))
+        .and(path_regex("/v1/workspaces/.*/query"))
+        .and(header("authorization", "Bearer my-secret-token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(sample_empty_response()))
+        .mount(&mock_server)
+        .await;
+
+    let credential = Arc::new(MockTokenProvider::new("my-secret-token"));
+    let client = AzureQueryClient::new(credential)
+        .with_log_analytics_base_url(&mock_server.uri());
+
+    let result = client
+        .query_log_analytics("ws-1", "test", "PT1H")
+        .await;
+
+    // If the bearer token wasn't injected correctly, wiremock returns 404
+    assert!(result.is_ok(), "Bearer token should be injected: {result:?}");
+}
+
+#[tokio::test]
+async fn test_query_sends_kql_in_body() {
+    let mock_server = MockServer::start().await;
+
+    let kql = "AppExceptions | where TimeGenerated > ago(30m) | take 100";
+
+    Mock::given(method("POST"))
+        .and(path_regex("/v1/workspaces/.*/query"))
+        .and(body_string_contains(kql))
+        .respond_with(ResponseTemplate::new(200).set_body_json(sample_empty_response()))
+        .mount(&mock_server)
+        .await;
+
+    let client = test_client(&mock_server.uri());
+
+    let result = client
+        .query_log_analytics("ws-1", kql, "PT30M")
+        .await;
+
+    assert!(result.is_ok(), "KQL query should be in request body: {result:?}");
 }
 
 // ─── Alert Parsing Tests ───

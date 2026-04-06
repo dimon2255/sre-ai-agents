@@ -1,15 +1,16 @@
 use std::collections::HashMap;
 
+use tokio::sync::mpsc;
 use tracing::debug;
 
 use sre_agents::AgentHandle;
-use sre_common::messages::{AgentMessage, AgentType};
+use sre_common::messages::{AgentMessage, AgentType, InboundMessage};
 
-/// Capability-based agent router.
+/// Capability-based agent router (ADR-003, ADR-006).
 ///
-/// Routes tasks to agents based on their registered capabilities,
-/// not hard-coded type mappings. This allows adding new agents
-/// without modifying routing logic.
+/// Routes tasks to agents based on their registered capabilities.
+/// Each dispatched message includes a per-investigation reply channel
+/// so agents respond directly to the investigation that sent the task.
 pub struct AgentRouter {
     agents: HashMap<String, AgentHandle>,
 }
@@ -32,11 +33,12 @@ impl AgentRouter {
         self.agents.insert(handle.id.0.clone(), handle);
     }
 
-    /// Route a message to the appropriate agent by type
+    /// Route a message to the appropriate agent by type, with a reply channel
     pub async fn route_to_type(
         &self,
         agent_type: &AgentType,
         message: AgentMessage,
+        reply_tx: mpsc::Sender<AgentMessage>,
     ) -> Result<(), RouteError> {
         let handle = self
             .agents
@@ -46,18 +48,19 @@ impl AgentRouter {
 
         handle
             .sender
-            .send(message)
+            .send(InboundMessage { message, reply_tx })
             .await
             .map_err(|_| RouteError::ChannelClosed(handle.id.to_string()))?;
 
         Ok(())
     }
 
-    /// Route a message to a specific agent by ID
+    /// Route a message to a specific agent by ID, with a reply channel
     pub async fn route_to_id(
         &self,
         agent_id: &str,
         message: AgentMessage,
+        reply_tx: mpsc::Sender<AgentMessage>,
     ) -> Result<(), RouteError> {
         let handle = self
             .agents
@@ -66,7 +69,7 @@ impl AgentRouter {
 
         handle
             .sender
-            .send(message)
+            .send(InboundMessage { message, reply_tx })
             .await
             .map_err(|_| RouteError::ChannelClosed(agent_id.to_string()))?;
 

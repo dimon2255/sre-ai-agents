@@ -16,7 +16,7 @@ use crate::router::AgentRouter;
 use crate::timeout;
 use crate::workflow::InvestigationWorkflow;
 
-/// The central orchestrator that coordinates investigations.
+/// The central orchestrator that coordinates investigations (ADR-003, ADR-006).
 ///
 /// Responsibilities:
 /// - Receive investigation triggers (alerts, manual requests)
@@ -24,11 +24,14 @@ use crate::workflow::InvestigationWorkflow;
 /// - Manage workflow state transitions
 /// - Aggregate findings and generate reports
 /// - Handle timeouts and partial results
+///
+/// Each investigation creates its own reply channel (ADR-006), eliminating
+/// the shared-inbox race condition. Agents reply through the channel bundled
+/// with the task message, so responses are always scoped to the correct
+/// investigation.
 pub struct Orchestrator {
     config: PlatformConfig,
     router: AgentRouter,
-    /// Orchestrator's inbox — all agents send responses here
-    inbox: mpsc::Receiver<AgentMessage>,
     /// Store for persisting workflow state and audit trail
     store: Arc<dyn WorkflowStore>,
     event_log: Arc<dyn EventLog>,
@@ -38,14 +41,12 @@ impl Orchestrator {
     pub fn new(
         config: PlatformConfig,
         router: AgentRouter,
-        inbox: mpsc::Receiver<AgentMessage>,
         store: Arc<dyn WorkflowStore>,
         event_log: Arc<dyn EventLog>,
     ) -> Self {
         Self {
             config,
             router,
-            inbox,
             store,
             event_log,
         }
@@ -54,10 +55,10 @@ impl Orchestrator {
     /// Run a full investigation for a given alert.
     ///
     /// This is the main investigation loop:
-    /// 1. Create workflow
+    /// 1. Create workflow + per-investigation reply channel
     /// 2. Send to TriageAgent
     /// 3. Fan out to investigation agents based on triage result
-    /// 4. Collect results with timeout
+    /// 4. Collect results with timeout (all on the scoped channel)
     /// 5. Aggregate findings and generate report
     #[instrument(skip(self), fields(alert_id = %alert.alert_id, resource = %alert.affected_resource))]
     pub async fn investigate(
@@ -68,6 +69,9 @@ impl Orchestrator {
         let correlation_id = *workflow.id();
         let agent_timeout =
             Duration::from_secs(self.config.orchestrator.agent_timeout_secs);
+
+        // Per-investigation reply channel (ADR-006)
+        let (reply_tx, mut reply_rx) = mpsc::channel::<AgentMessage>(64);
 
         info!(
             workflow_id = %correlation_id,
@@ -113,7 +117,7 @@ impl Orchestrator {
 
         if let Err(e) = self
             .router
-            .route_to_type(&AgentType::Triage, triage_msg)
+            .route_to_type(&AgentType::Triage, triage_msg, reply_tx.clone())
             .await
         {
             error!(error = %e, "Failed to route to TriageAgent");
@@ -125,9 +129,9 @@ impl Orchestrator {
             return Ok(workflow.generate_report());
         }
 
-        // Wait for triage response
+        // Wait for triage response on the scoped channel
         let triage_response = timeout::recv_with_timeout(
-            &mut self.inbox,
+            &mut reply_rx,
             agent_timeout,
             "triage",
         )
@@ -199,17 +203,21 @@ impl Orchestrator {
 
             let _ = self.event_log.append(&msg).await;
 
-            if let Err(e) = self.router.route_to_type(agent_type, msg).await {
+            if let Err(e) = self
+                .router
+                .route_to_type(agent_type, msg, reply_tx.clone())
+                .await
+            {
                 warn!(agent_type = %agent_type, error = %e, "Failed to route to agent");
             } else {
                 expected_responses += 1;
             }
         }
 
-        // ── Step 3: Collect results ──
+        // ── Step 3: Collect results on the scoped channel ──
 
         let responses = timeout::collect_with_timeout(
-            &mut self.inbox,
+            &mut reply_rx,
             expected_responses as usize,
             agent_timeout,
         )
@@ -240,10 +248,8 @@ impl Orchestrator {
             error!(error = %e, "Failed to persist state");
         }
 
-        let report = workflow.generate_report();
-
-        // Determine final state
-        let final_state = if FindingAggregator::should_escalate(&report.findings) {
+        // Determine final state before generating report so escalation is reflected
+        let final_state = if FindingAggregator::should_escalate(&workflow.findings()) {
             WorkflowState::Escalated
         } else {
             WorkflowState::Resolved
@@ -251,6 +257,8 @@ impl Orchestrator {
 
         workflow.transition_to(final_state)?;
         let _ = self.store.update_state(&correlation_id, final_state).await;
+
+        let report = workflow.generate_report();
         let _ = self.store.store_report(&correlation_id, &report).await;
 
         info!(

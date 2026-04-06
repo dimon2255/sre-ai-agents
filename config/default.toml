@@ -1,6 +1,8 @@
 # SRE AI Agents Platform Configuration
 
 [azure]
+# Auth mode: "azure" (DefaultAzureCredential) or "mock" (dev token)
+auth_mode = "mock"
 # subscription_id = ""
 # Log Analytics workspace IDs
 # workspace_ids = []
