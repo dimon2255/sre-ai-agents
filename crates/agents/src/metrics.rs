@@ -436,12 +436,14 @@ impl SreAgent for MetricsAgent {
 
     async fn run(
         &self,
-        mut inbox: mpsc::Receiver<AgentMessage>,
-        outbox: mpsc::Sender<AgentMessage>,
+        mut inbox: mpsc::Receiver<InboundMessage>,
     ) -> Result<(), AgentError> {
         info!(agent_id = %self.id, "MetricsAgent started");
 
-        while let Some(message) = inbox.recv().await {
+        while let Some(inbound) = inbox.recv().await {
+            let message = &inbound.message;
+            let reply_tx = &inbound.reply_tx;
+
             debug!(
                 message_id = %message.id,
                 correlation_id = %message.correlation_id,
@@ -484,8 +486,8 @@ impl SreAgent for MetricsAgent {
                     )
                     .with_parent(message.id);
 
-                    if outbox.send(response).await.is_err() {
-                        warn!("MetricsAgent: orchestrator channel closed");
+                    if reply_tx.send(response).await.is_err() {
+                        warn!("MetricsAgent: reply channel closed");
                         break;
                     }
                 }
@@ -502,7 +504,7 @@ impl SreAgent for MetricsAgent {
                         }),
                         1.0,
                     );
-                    let _ = outbox.send(response).await;
+                    let _ = reply_tx.send(response).await;
                 }
                 _ => {
                     warn!(agent_id = %self.id, "MetricsAgent received unexpected payload type");

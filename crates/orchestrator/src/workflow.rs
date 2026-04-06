@@ -59,6 +59,11 @@ impl InvestigationWorkflow {
         self.triage_result.as_ref()
     }
 
+    /// Access accumulated findings (used by engine to decide escalation before report generation)
+    pub fn findings(&self) -> &[Finding] {
+        &self.findings
+    }
+
     /// Transition to a new state, validating the transition is legal
     pub fn transition_to(
         &mut self,
@@ -113,7 +118,7 @@ impl InvestigationWorkflow {
     /// Generate the final investigation report
     pub fn generate_report(&self) -> InvestigationReport {
         let now = Utc::now();
-        let duration_ms = (now - self.record.created_at).num_milliseconds() as u64;
+        let duration_ms = (now - self.record.created_at).num_milliseconds().max(0) as u64;
 
         // Sort findings by severity (Critical first)
         let mut sorted_findings = self.findings.clone();

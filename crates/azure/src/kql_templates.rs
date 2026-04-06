@@ -1,11 +1,11 @@
-/// Parameterized KQL query templates (ADR-005).
-///
-/// Every template MUST include:
-/// - A time filter (`| where TimeGenerated > ago(...)`)
-/// - A row limit (`| take N`)
-///
-/// Parameters are interpolated into known-safe templates.
-/// No freeform KQL generation is allowed in Phase 1.
+//! Parameterized KQL query templates (ADR-005).
+//!
+//! Every template MUST include:
+//! - A time filter (`| where TimeGenerated > ago(...)`)
+//! - A row limit (`| take N`)
+//!
+//! Parameters are interpolated into known-safe templates.
+//! No freeform KQL generation is allowed in Phase 1.
 
 /// Maximum allowed timespan in minutes (24 hours)
 pub const MAX_TIMESPAN_MINUTES: u32 = 1440;
@@ -15,7 +15,7 @@ pub const DEFAULT_MAX_ROWS: u32 = 1000;
 
 /// Clamp timespan to safe range
 fn safe_timespan(minutes: u32) -> u32 {
-    minutes.min(MAX_TIMESPAN_MINUTES).max(1)
+    minutes.clamp(1, MAX_TIMESPAN_MINUTES)
 }
 
 /// Sanitize a resource name to prevent KQL injection.

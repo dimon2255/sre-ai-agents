@@ -20,6 +20,13 @@ pub struct AzureConfig {
     pub app_insights_ids: Vec<String>,
     /// Resource group names to monitor
     pub resource_groups: Vec<String>,
+    /// Auth mode: "azure" (DefaultAzureCredential) or "mock" (dev token)
+    #[serde(default = "default_auth_mode")]
+    pub auth_mode: String,
+}
+
+fn default_auth_mode() -> String {
+    "azure".to_string()
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -79,6 +86,7 @@ impl Default for PlatformConfig {
                 workspace_ids: vec![],
                 app_insights_ids: vec![],
                 resource_groups: vec![],
+                auth_mode: "mock".to_string(),
             },
             orchestrator: OrchestratorConfig {
                 agent_timeout_secs: 30,

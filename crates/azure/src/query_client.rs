@@ -9,15 +9,23 @@ use sre_common::errors::AzureError;
 use crate::auth::TokenProvider;
 use crate::models::KqlQueryResponse;
 
+/// Default Azure Log Analytics API base URL
+const DEFAULT_LOG_ANALYTICS_BASE: &str = "https://api.loganalytics.io";
+
+/// Default Azure Application Insights API base URL
+const DEFAULT_APP_INSIGHTS_BASE: &str = "https://api.applicationinsights.io";
+
 /// Shared KQL query executor for Log Analytics and Application Insights (ADR-005).
 ///
 /// Both services use the same KQL language and similar REST APIs,
 /// differing only in endpoint and auth scope.
+///
+/// Base URLs are configurable for testing (point at wiremock).
 pub struct AzureQueryClient {
     http: reqwest::Client,
     credential: Arc<dyn TokenProvider>,
-    /// Max queries per minute (Azure throttles at ~200/min)
-    max_queries_per_minute: u32,
+    log_analytics_base_url: String,
+    app_insights_base_url: String,
 }
 
 impl AzureQueryClient {
@@ -28,12 +36,20 @@ impl AzureQueryClient {
                 .build()
                 .expect("Failed to create HTTP client"),
             credential,
-            max_queries_per_minute: 30, // Conservative default, well below Azure's 200/min
+            log_analytics_base_url: DEFAULT_LOG_ANALYTICS_BASE.to_string(),
+            app_insights_base_url: DEFAULT_APP_INSIGHTS_BASE.to_string(),
         }
     }
 
-    pub fn with_rate_limit(mut self, max_per_minute: u32) -> Self {
-        self.max_queries_per_minute = max_per_minute;
+    /// Override the Log Analytics base URL (for testing with wiremock)
+    pub fn with_log_analytics_base_url(mut self, url: impl Into<String>) -> Self {
+        self.log_analytics_base_url = url.into();
+        self
+    }
+
+    /// Override the App Insights base URL (for testing with wiremock)
+    pub fn with_app_insights_base_url(mut self, url: impl Into<String>) -> Self {
+        self.app_insights_base_url = url.into();
         self
     }
 
@@ -51,7 +67,8 @@ impl AzureQueryClient {
             .await?;
 
         let url = format!(
-            "https://api.loganalytics.io/v1/workspaces/{workspace_id}/query"
+            "{}/v1/workspaces/{workspace_id}/query",
+            self.log_analytics_base_url
         );
 
         debug!(
@@ -78,7 +95,8 @@ impl AzureQueryClient {
             .await?;
 
         let url = format!(
-            "https://api.applicationinsights.io/v1/apps/{app_id}/query"
+            "{}/v1/apps/{app_id}/query",
+            self.app_insights_base_url
         );
 
         debug!(

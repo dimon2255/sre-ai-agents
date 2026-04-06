@@ -9,5 +9,5 @@ pub use errors::PlatformError;
 pub use findings::{Finding, FindingCategory, FindingSeverity, InvestigationReport};
 pub use messages::{
     AgentId, AgentMessage, AgentPayload, AgentStatus, AgentType, AlertInfo, AlertSeverity,
-    InvestigationContext, MessageTarget,
+    InboundMessage, InvestigationContext, MessageTarget,
 };

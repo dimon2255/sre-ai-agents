@@ -26,91 +26,17 @@ fn make_alert(resource: &str, severity: AlertSeverity) -> AlertInfo {
     }
 }
 
-fn sample_error_kql_response() -> serde_json::Value {
-    serde_json::json!({
-        "tables": [{
-            "name": "PrimaryResult",
-            "columns": [
-                {"name": "TimeGenerated", "type": "datetime"},
-                {"name": "ExceptionType", "type": "string"},
-                {"name": "ProblemId", "type": "string"},
-                {"name": "ErrorCount", "type": "long"},
-                {"name": "DistinctErrors", "type": "long"}
-            ],
-            "rows": [
-                ["2026-04-06T02:00:00Z", "NullReferenceException", "prob-001", 85, 3],
-                ["2026-04-06T01:59:00Z", "TimeoutException", "prob-002", 22, 1]
-            ]
-        }]
-    })
-}
-
-fn sample_latency_kql_response() -> serde_json::Value {
-    serde_json::json!({
-        "tables": [{
-            "name": "PrimaryResult",
-            "columns": [
-                {"name": "TimeGenerated", "type": "datetime"},
-                {"name": "P50", "type": "real"},
-                {"name": "P95", "type": "real"},
-                {"name": "P99", "type": "real"},
-                {"name": "FailureRate", "type": "real"},
-                {"name": "TotalRequests", "type": "long"}
-            ],
-            "rows": [
-                ["2026-04-06T02:00:00Z", 45.0, 2500.0, 5200.0, 8.5, 2000]
-            ]
-        }]
-    })
-}
-
-fn sample_failure_breakdown_response() -> serde_json::Value {
-    serde_json::json!({
-        "tables": [{
-            "name": "PrimaryResult",
-            "columns": [
-                {"name": "OperationName", "type": "string"},
-                {"name": "ResultCode", "type": "string"},
-                {"name": "FailureCount", "type": "long"},
-                {"name": "AvgDuration", "type": "real"}
-            ],
-            "rows": [
-                ["POST /api/payments", "500", 75, 1200.0],
-                ["GET /api/health", "503", 12, 5000.0]
-            ]
-        }]
-    })
-}
-
-fn sample_dependency_response() -> serde_json::Value {
-    serde_json::json!({
-        "tables": [{
-            "name": "PrimaryResult",
-            "columns": [
-                {"name": "DependencyType", "type": "string"},
-                {"name": "Target", "type": "string"},
-                {"name": "CallCount", "type": "long"},
-                {"name": "FailureCount", "type": "long"},
-                {"name": "AvgDuration", "type": "real"},
-                {"name": "P95Duration", "type": "real"},
-                {"name": "FailureRate", "type": "real"}
-            ],
-            "rows": [
-                ["SQL", "payments-db.database.example", 500, 45, 120.0, 800.0, 9.0],
-                ["HTTP", "inventory-api.example", 300, 5, 50.0, 200.0, 1.7]
-            ]
-        }]
-    })
-}
-
-fn sample_empty_response() -> serde_json::Value {
-    serde_json::json!({
-        "tables": [{
-            "name": "PrimaryResult",
-            "columns": [],
-            "rows": []
-        }]
-    })
+/// Helper: send an AgentMessage to an agent with a reply channel, return reply_rx
+async fn send_with_reply(
+    agent_tx: &mpsc::Sender<InboundMessage>,
+    message: AgentMessage,
+) -> mpsc::Receiver<AgentMessage> {
+    let (reply_tx, reply_rx) = mpsc::channel(16);
+    agent_tx
+        .send(InboundMessage { message, reply_tx })
+        .await
+        .unwrap();
+    reply_rx
 }
 
 // ─── TriageAgent Tests ───
@@ -119,10 +45,9 @@ fn sample_empty_response() -> serde_json::Value {
 async fn test_triage_agent_classifies_alert() {
     let agent = TriageAgent::new();
     let (agent_tx, agent_rx) = mpsc::channel(16);
-    let (orch_tx, mut orch_rx) = mpsc::channel(16);
 
     // Spawn agent
-    let handle = tokio::spawn(async move { agent.run(agent_rx, orch_tx).await });
+    let handle = tokio::spawn(async move { agent.run(agent_rx).await });
 
     // Send investigation request
     let alert = make_alert("payments-api", AlertSeverity::Sev1);
@@ -138,10 +63,10 @@ async fn test_triage_agent_classifies_alert() {
         1.0,
     );
 
-    agent_tx.send(msg).await.unwrap();
+    let mut reply_rx = send_with_reply(&agent_tx, msg).await;
 
     // Receive triage result
-    let response = tokio::time::timeout(Duration::from_secs(5), orch_rx.recv())
+    let response = tokio::time::timeout(Duration::from_secs(5), reply_rx.recv())
         .await
         .unwrap()
         .unwrap();
@@ -172,9 +97,8 @@ async fn test_triage_agent_classifies_alert() {
 async fn test_triage_agent_lower_severity_longer_timespan() {
     let agent = TriageAgent::new();
     let (agent_tx, agent_rx) = mpsc::channel(16);
-    let (orch_tx, mut orch_rx) = mpsc::channel(16);
 
-    let handle = tokio::spawn(async move { agent.run(agent_rx, orch_tx).await });
+    let handle = tokio::spawn(async move { agent.run(agent_rx).await });
 
     let alert = make_alert("web-frontend", AlertSeverity::Sev3);
     let msg = AgentMessage::new(
@@ -188,9 +112,9 @@ async fn test_triage_agent_lower_severity_longer_timespan() {
         1.0,
     );
 
-    agent_tx.send(msg).await.unwrap();
+    let mut reply_rx = send_with_reply(&agent_tx, msg).await;
 
-    let response = tokio::time::timeout(Duration::from_secs(5), orch_rx.recv())
+    let response = tokio::time::timeout(Duration::from_secs(5), reply_rx.recv())
         .await
         .unwrap()
         .unwrap();
@@ -209,9 +133,8 @@ async fn test_triage_agent_lower_severity_longer_timespan() {
 async fn test_triage_agent_health_check() {
     let agent = TriageAgent::new();
     let (agent_tx, agent_rx) = mpsc::channel(16);
-    let (orch_tx, mut orch_rx) = mpsc::channel(16);
 
-    let handle = tokio::spawn(async move { agent.run(agent_rx, orch_tx).await });
+    let handle = tokio::spawn(async move { agent.run(agent_rx).await });
 
     let msg = AgentMessage::new(
         uuid::Uuid::new_v4(),
@@ -221,9 +144,9 @@ async fn test_triage_agent_health_check() {
         1.0,
     );
 
-    agent_tx.send(msg).await.unwrap();
+    let mut reply_rx = send_with_reply(&agent_tx, msg).await;
 
-    let response = tokio::time::timeout(Duration::from_secs(5), orch_rx.recv())
+    let response = tokio::time::timeout(Duration::from_secs(5), reply_rx.recv())
         .await
         .unwrap()
         .unwrap();
@@ -247,9 +170,8 @@ async fn test_logs_agent_with_no_workspaces() {
     let agent = LogsAgent::new(Arc::new(AzureQueryClient::new(credential)), vec![], 1000);
 
     let (agent_tx, agent_rx) = mpsc::channel(16);
-    let (orch_tx, mut orch_rx) = mpsc::channel(16);
 
-    let handle = tokio::spawn(async move { agent.run(agent_rx, orch_tx).await });
+    let handle = tokio::spawn(async move { agent.run(agent_rx).await });
 
     let correlation_id = uuid::Uuid::new_v4();
     let msg = AgentMessage::new(
@@ -268,9 +190,9 @@ async fn test_logs_agent_with_no_workspaces() {
         1.0,
     );
 
-    agent_tx.send(msg).await.unwrap();
+    let mut reply_rx = send_with_reply(&agent_tx, msg).await;
 
-    let response = tokio::time::timeout(Duration::from_secs(5), orch_rx.recv())
+    let response = tokio::time::timeout(Duration::from_secs(5), reply_rx.recv())
         .await
         .unwrap()
         .unwrap();
@@ -299,9 +221,8 @@ async fn test_metrics_agent_produces_analysis_result() {
     );
 
     let (agent_tx, agent_rx) = mpsc::channel(16);
-    let (orch_tx, mut orch_rx) = mpsc::channel(16);
 
-    let handle = tokio::spawn(async move { agent.run(agent_rx, orch_tx).await });
+    let handle = tokio::spawn(async move { agent.run(agent_rx).await });
 
     let correlation_id = uuid::Uuid::new_v4();
     let msg = AgentMessage::new(
@@ -320,9 +241,9 @@ async fn test_metrics_agent_produces_analysis_result() {
         1.0,
     );
 
-    agent_tx.send(msg).await.unwrap();
+    let mut reply_rx = send_with_reply(&agent_tx, msg).await;
 
-    let response = tokio::time::timeout(Duration::from_secs(10), orch_rx.recv())
+    let response = tokio::time::timeout(Duration::from_secs(10), reply_rx.recv())
         .await
         .unwrap()
         .unwrap();

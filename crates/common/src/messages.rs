@@ -42,7 +42,7 @@ pub enum MessageTarget {
     Broadcast,
 }
 
-/// Structured message envelope for all agent communication (ADR-003)
+/// Structured message envelope for all agent communication (ADR-003, ADR-006)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentMessage {
     /// Unique message ID
@@ -61,6 +61,15 @@ pub struct AgentMessage {
     pub timestamp: DateTime<Utc>,
     /// Parent message (forms a DAG of reasoning)
     pub parent_message_id: Option<Uuid>,
+}
+
+/// Inbound task message bundled with a per-investigation reply channel (ADR-006).
+///
+/// The reply_tx is scoped to the investigation that dispatched this task,
+/// eliminating the shared-inbox race condition from the original design.
+pub struct InboundMessage {
+    pub message: AgentMessage,
+    pub reply_tx: tokio::sync::mpsc::Sender<AgentMessage>,
 }
 
 impl AgentMessage {

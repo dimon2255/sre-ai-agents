@@ -88,6 +88,28 @@ fn load_config(path: &str) -> anyhow::Result<PlatformConfig> {
     Ok(config)
 }
 
+/// Spawn a single agent and register its handle with the router.
+fn spawn_agent(
+    agent: impl SreAgent + 'static,
+    router: &mut AgentRouter,
+    handles: &mut Vec<tokio::task::JoinHandle<()>>,
+) {
+    let (agent_tx, agent_rx) = mpsc::channel::<InboundMessage>(64);
+    let handle = AgentHandle {
+        id: agent.id().clone(),
+        agent_type: agent.agent_type(),
+        sender: agent_tx,
+        capabilities: agent.capabilities(),
+    };
+    router.register(handle);
+
+    handles.push(tokio::spawn(async move {
+        if let Err(e) = agent.run(agent_rx).await {
+            error!(error = %e, "Agent exited with error");
+        }
+    }));
+}
+
 /// Bootstrap all agents and return the orchestrator + agent join handles
 async fn bootstrap(
     config: &PlatformConfig,
@@ -96,92 +118,56 @@ async fn bootstrap(
     let store = Arc::new(SqliteStore::new(&config.store.database_url).await?);
     let event_log = store.clone();
 
-    // Initialize Azure credential (placeholder for now)
-    let credential: Arc<dyn sre_azure::TokenProvider> = match AzureCredentialProvider::new() {
-        Ok(cred) => Arc::new(cred),
-        Err(e) => {
-            info!("Azure credential not available ({e}), using mock for development");
-            Arc::new(sre_azure::MockTokenProvider::new("dev-token"))
-        }
-    };
+    // Initialize Azure credential based on config auth_mode
+    let credential: Arc<dyn sre_azure::TokenProvider> =
+        match config.azure.auth_mode.as_str() {
+            "mock" => {
+                info!("Using mock token provider (auth_mode=mock)");
+                Arc::new(sre_azure::MockTokenProvider::new("dev-mock-token"))
+            }
+            _ => match AzureCredentialProvider::new() {
+                Ok(cred) => Arc::new(cred),
+                Err(e) => {
+                    info!("Azure credential not available ({e}), falling back to mock");
+                    Arc::new(sre_azure::MockTokenProvider::new("dev-token"))
+                }
+            },
+        };
 
     let query_client = Arc::new(AzureQueryClient::new(credential.clone()));
-
-    // Create orchestrator inbox
-    let (orch_tx, orch_rx) = mpsc::channel::<AgentMessage>(256);
 
     // Create and spawn agents
     let mut router = AgentRouter::new();
     let mut join_handles = Vec::new();
 
-    // TriageAgent
     if config.agents.triage.enabled {
-        let (agent_tx, agent_rx) = mpsc::channel::<AgentMessage>(64);
-        let agent = TriageAgent::new();
-        let handle = AgentHandle {
-            id: agent.id().clone(),
-            agent_type: agent.agent_type(),
-            sender: agent_tx,
-            capabilities: agent.capabilities(),
-        };
-        router.register(handle);
-
-        let outbox = orch_tx.clone();
-        join_handles.push(tokio::spawn(async move {
-            if let Err(e) = agent.run(agent_rx, outbox).await {
-                error!(error = %e, "TriageAgent exited with error");
-            }
-        }));
+        spawn_agent(TriageAgent::new(), &mut router, &mut join_handles);
     }
 
-    // LogsAgent
     if config.agents.logs.enabled {
-        let (agent_tx, agent_rx) = mpsc::channel::<AgentMessage>(64);
-        let agent = LogsAgent::new(
-            query_client.clone(),
-            config.azure.workspace_ids.clone(),
-            config.agents.logs.max_rows,
+        spawn_agent(
+            LogsAgent::new(
+                query_client.clone(),
+                config.azure.workspace_ids.clone(),
+                config.agents.logs.max_rows,
+            ),
+            &mut router,
+            &mut join_handles,
         );
-        let handle = AgentHandle {
-            id: agent.id().clone(),
-            agent_type: agent.agent_type(),
-            sender: agent_tx,
-            capabilities: agent.capabilities(),
-        };
-        router.register(handle);
-
-        let outbox = orch_tx.clone();
-        join_handles.push(tokio::spawn(async move {
-            if let Err(e) = agent.run(agent_rx, outbox).await {
-                error!(error = %e, "LogsAgent exited with error");
-            }
-        }));
     }
 
-    // MetricsAgent
     if config.agents.metrics.enabled {
-        let (agent_tx, agent_rx) = mpsc::channel::<AgentMessage>(64);
-        let agent = MetricsAgent::new(
-            query_client.clone(),
-            config.azure.app_insights_ids.clone(),
+        spawn_agent(
+            MetricsAgent::new(
+                query_client.clone(),
+                config.azure.app_insights_ids.clone(),
+            ),
+            &mut router,
+            &mut join_handles,
         );
-        let handle = AgentHandle {
-            id: agent.id().clone(),
-            agent_type: agent.agent_type(),
-            sender: agent_tx,
-            capabilities: agent.capabilities(),
-        };
-        router.register(handle);
-
-        let outbox = orch_tx.clone();
-        join_handles.push(tokio::spawn(async move {
-            if let Err(e) = agent.run(agent_rx, outbox).await {
-                error!(error = %e, "MetricsAgent exited with error");
-            }
-        }));
     }
 
-    let orchestrator = Orchestrator::new(config.clone(), router, orch_rx, store, event_log);
+    let orchestrator = Orchestrator::new(config.clone(), router, store, event_log);
 
     Ok((orchestrator, join_handles))
 }
