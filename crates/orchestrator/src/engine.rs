@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use tokio::sync::mpsc;
 use tracing::{error, info, instrument, warn};
-use uuid::Uuid;
 
 use sre_common::config::PlatformConfig;
 use sre_common::errors::OrchestratorError;

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use tokio::sync::mpsc;
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, info, warn};
 
 use sre_azure::kql_templates;
 use sre_azure::query_client::AzureQueryClient;

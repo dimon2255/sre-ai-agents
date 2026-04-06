@@ -325,5 +325,3 @@ struct EventRow {
     payload_json: String,
 }
 
-// Re-export for use in into_record
-use crate::models::WorkflowRecord;

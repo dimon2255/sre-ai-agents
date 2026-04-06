@@ -1,5 +1,5 @@
-use axum::{extract::State, http::StatusCode, Json};
-use tracing::{error, info, warn};
+use axum::{http::StatusCode, Json};
+use tracing::{info, warn};
 
 use sre_azure::alerts_client::AzureAlertsClient;
 use sre_azure::models::AzureCommonAlert;

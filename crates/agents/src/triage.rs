@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use tokio::sync::mpsc;
-use tracing::{debug, info, instrument, warn};
-use uuid::Uuid;
+use tracing::{debug, info, warn};
 
 use sre_common::errors::AgentError;
 use sre_common::messages::*;

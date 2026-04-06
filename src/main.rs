@@ -190,7 +190,7 @@ async fn bootstrap(
 async fn run_server(config: PlatformConfig) -> anyhow::Result<()> {
     let listen_addr = format!("{}:{}", config.webhook.listen_addr, config.webhook.listen_port);
 
-    let (mut orchestrator, _agent_handles) = bootstrap(&config).await?;
+    let (_orchestrator, _agent_handles) = bootstrap(&config).await?;
 
     info!(listen_addr = %listen_addr, "Starting webhook server");
 

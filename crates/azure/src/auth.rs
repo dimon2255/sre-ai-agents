@@ -1,4 +1,3 @@
-use std::sync::Arc;
 
 use sre_common::errors::AzureError;
 use tracing::info;

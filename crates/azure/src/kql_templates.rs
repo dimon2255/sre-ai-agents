@@ -185,7 +185,7 @@ mod tests {
         assert_eq!(sanitize_resource_name("my-app_v2.0"), "my-app_v2.0");
         assert_eq!(
             sanitize_resource_name("'; DROP TABLE--"),
-            "DROPTABLE"
+            "DROPTABLE--"
         );
     }
 

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use tracing::{debug, warn};
+use tracing::debug;
 
 use sre_agents::AgentHandle;
 use sre_common::messages::{AgentMessage, AgentType};
