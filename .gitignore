@@ -26,3 +26,4 @@ credentials.json
 
 # BMAD toolkit (symlink)
 _bmad/
+data/

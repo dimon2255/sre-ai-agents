@@ -1,5 +1,6 @@
 use async_trait::async_trait;
-use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
+use std::str::FromStr;
 use tracing::{debug, info};
 use uuid::Uuid;
 
@@ -18,9 +19,13 @@ pub struct SqliteStore {
 impl SqliteStore {
     /// Create a new SqliteStore, running migrations
     pub async fn new(database_url: &str) -> Result<Self, StoreError> {
+        let options = SqliteConnectOptions::from_str(database_url)
+            .map_err(|e| StoreError::Database(e.to_string()))?
+            .create_if_missing(true);
+
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
-            .connect(database_url)
+            .connect_with(options)
             .await
             .map_err(|e| StoreError::Database(e.to_string()))?;
 
