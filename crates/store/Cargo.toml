@@ -1,0 +1,12 @@
+[package]
+name = "sre-store"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+sre-common = { path = "../common" }
+sqlx.workspace = true
+async-trait.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+thiserror.workspace = true

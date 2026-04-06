@@ -1,0 +1,1 @@
+// SreAgent trait definition

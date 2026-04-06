@@ -1,0 +1,32 @@
+# SRE AI Agents Platform Configuration
+
+[azure]
+# subscription_id = ""
+# Log Analytics workspace IDs
+# workspace_ids = []
+# App Insights application IDs
+# app_insights_ids = []
+
+[orchestrator]
+agent_timeout_secs = 30
+max_concurrent_investigations = 10
+max_parallel_agents_per_investigation = 5
+
+[agents.triage]
+enabled = true
+
+[agents.logs]
+enabled = true
+default_timespan_minutes = 30
+max_rows = 1000
+
+[agents.metrics]
+enabled = true
+default_timespan_minutes = 30
+
+[webhook]
+listen_addr = "0.0.0.0"
+listen_port = 8080
+
+[store]
+database_url = "sqlite://data/sre-agents.db"

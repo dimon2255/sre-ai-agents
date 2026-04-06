@@ -1,0 +1,16 @@
+[package]
+name = "sre-agents"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+sre-common = { path = "../common" }
+sre-azure = { path = "../azure" }
+tokio.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
