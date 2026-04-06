@@ -5,13 +5,11 @@ edition.workspace = true
 
 [dependencies]
 sre-common = { path = "../common" }
-azure_identity.workspace = true
-azure_core.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 thiserror.workspace = true
-uuid.workspace = true
 chrono.workspace = true
 async-trait.workspace = true
+tracing.workspace = true

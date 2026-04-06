@@ -1,1 +1,118 @@
-// Finding aggregation and confidence scoring
+use sre_common::findings::{Finding, FindingSeverity};
+
+/// Confidence threshold below which we escalate to humans
+const ESCALATION_CONFIDENCE_THRESHOLD: f64 = 0.5;
+
+/// Aggregates findings from multiple agents and scores overall confidence.
+pub struct FindingAggregator;
+
+impl FindingAggregator {
+    /// Calculate overall confidence from a set of findings
+    pub fn overall_confidence(findings: &[Finding]) -> f64 {
+        if findings.is_empty() {
+            return 0.0;
+        }
+
+        // Weight by severity: critical findings contribute more to confidence
+        let weighted_sum: f64 = findings
+            .iter()
+            .map(|f| {
+                let weight = match f.severity {
+                    FindingSeverity::Critical => 2.0,
+                    FindingSeverity::High => 1.5,
+                    FindingSeverity::Medium => 1.0,
+                    FindingSeverity::Low => 0.5,
+                    FindingSeverity::Info => 0.25,
+                };
+                f.confidence * weight
+            })
+            .sum();
+
+        let total_weight: f64 = findings
+            .iter()
+            .map(|f| match f.severity {
+                FindingSeverity::Critical => 2.0,
+                FindingSeverity::High => 1.5,
+                FindingSeverity::Medium => 1.0,
+                FindingSeverity::Low => 0.5,
+                FindingSeverity::Info => 0.25,
+            })
+            .sum();
+
+        (weighted_sum / total_weight).clamp(0.0, 1.0)
+    }
+
+    /// Determine if we should escalate based on findings
+    pub fn should_escalate(findings: &[Finding]) -> bool {
+        if findings.is_empty() {
+            return true; // No findings at all — escalate
+        }
+
+        let confidence = Self::overall_confidence(findings);
+        confidence < ESCALATION_CONFIDENCE_THRESHOLD
+    }
+
+    /// Deduplicate findings from multiple agents that describe the same issue
+    pub fn deduplicate(findings: Vec<Finding>) -> Vec<Finding> {
+        let mut deduped: Vec<Finding> = Vec::new();
+
+        for finding in findings {
+            let is_dup = deduped.iter().any(|existing| {
+                existing.category == finding.category
+                    && existing.title == finding.title
+                    && existing.source_agent != finding.source_agent
+            });
+
+            if !is_dup {
+                deduped.push(finding);
+            }
+        }
+
+        // Sort by severity (most severe first)
+        deduped.sort_by(|a, b| a.severity.cmp(&b.severity));
+        deduped
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sre_common::findings::{FindingCategory, FindingSeverity};
+
+    fn make_finding(severity: FindingSeverity, confidence: f64) -> Finding {
+        Finding {
+            category: FindingCategory::ErrorSpike,
+            severity,
+            title: "test".to_string(),
+            description: "test".to_string(),
+            confidence,
+            observed_at: None,
+            source_agent: "test".to_string(),
+            evidence: vec![],
+            suggestions: vec![],
+        }
+    }
+
+    #[test]
+    fn test_overall_confidence_empty() {
+        assert_eq!(FindingAggregator::overall_confidence(&[]), 0.0);
+    }
+
+    #[test]
+    fn test_overall_confidence_single_critical() {
+        let findings = vec![make_finding(FindingSeverity::Critical, 0.9)];
+        let conf = FindingAggregator::overall_confidence(&findings);
+        assert!((conf - 0.9).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_should_escalate_no_findings() {
+        assert!(FindingAggregator::should_escalate(&[]));
+    }
+
+    #[test]
+    fn test_should_not_escalate_high_confidence() {
+        let findings = vec![make_finding(FindingSeverity::High, 0.9)];
+        assert!(!FindingAggregator::should_escalate(&findings));
+    }
+}
