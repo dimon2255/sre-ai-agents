@@ -10,7 +10,7 @@
 
 ## Phase 1 — Azure MVP: Read-Only Investigation
 
-**Status**: Core Implementation Complete
+**Status**: Complete
 **Duration**: 6-8 weeks
 **Goal**: Prove the orchestrator + agent pattern works against real Azure data
 
@@ -26,11 +26,17 @@
 | AzureQueryClient (shared KQL executor) | Done | `crates/azure/src/query_client.rs` — base URL injection for testing |
 | AzureAlertsClient (alert ingestion) | Done | `crates/azure/src/alerts_client.rs` |
 | KQL Templates (parameterized queries) | Done | `crates/azure/src/kql_templates.rs` |
-| Common Alert Schema webhook handler | Skeleton | `src/webhook.rs` — parses alerts, TODO: wire to orchestrator |
+| Common Alert Schema webhook handler | Done | `src/webhook.rs` — Axum server with health probes + orchestrator channel |
 | CLI interface (manual investigation trigger) | Done | `src/main.rs` |
 | SQLite state store | Done | `crates/store/` — auto-creates DB, full audit trail |
 | Config-driven auth mode | Done | `azure.auth_mode = "mock" \| "azure"` in config |
-| OpenTelemetry instrumentation | Not Started | Across all crates |
+| OpenTelemetry instrumentation | Not Started | Deferred to Phase 2 |
+| CI/CD pipeline (GitHub Actions) | Done | `.github/workflows/` — lint, test, build, security, docker |
+| Multi-stage Dockerfile | Done | `Dockerfile` — builder + debian-slim runtime, ~80-100MB |
+| Health probes (/healthz, /readyz) | Done | Liveness + readiness (SQLite connectivity check) |
+| Release profile optimization | Done | LTO, strip, codegen-units=1 in Cargo.toml |
+| Serialization roundtrip tests | Done | All AgentPayload variants validated, InboundMessage boundary documented |
+| ADR-007: CI/CD + ACA deployment | Done | `docs/adr/007-cicd-containerization-aca-deployment.md` |
 
 ### Code Review Fixes (2026-04-06)
 
@@ -44,23 +50,25 @@
 
 ### Test Coverage
 
-- **48 tests** across all crates (up from 46)
+- **63 tests** across all crates (up from 48)
 - Store layer: 12 tests (CRUD, state transitions, event log)
 - Agent layer: 11 tests (triage, logs, metrics, capabilities)
 - Azure layer: 16 tests (query client via wiremock, alert parsing, KQL templates)
 - Orchestrator: 9 tests (full investigation flow, state persistence, aggregation)
+- Common layer: 10 tests (serialization roundtrips for all message/payload types)
+- Webhook/E2E: 5 tests (health probes, alert ingestion, end-to-end investigation)
 
 ### Exit Criteria
 
-- [ ] Webhook receives Azure alert -> investigation completes in < 60s
+- [x] Webhook receives Azure alert -> investigation completes in < 60s
 - [x] TriageAgent correctly classifies severity and affected resource
-- [ ] LogsAgent returns relevant error patterns from Log Analytics
-- [ ] MetricsAgent returns latency/error-rate analysis from App Insights
+- [x] LogsAgent returns relevant error patterns from Log Analytics
+- [x] MetricsAgent returns latency/error-rate analysis from App Insights
 - [x] Parallel agent execution (LogsAgent + MetricsAgent run concurrently)
 - [x] Full audit trail in SQLite for every investigation
 - [x] Structured JSON findings report generated per investigation
 - [x] Agent timeout + circuit breaking works
-- [ ] CI pipeline builds and tests pass
+- [x] CI pipeline builds and tests pass
 
 ### Key Decisions
 
@@ -160,6 +168,7 @@
 | [ADR-004](adr/004-read-only-phase1-safety-model.md) | Read-Only Phase 1 Safety Model | Accepted |
 | [ADR-005](adr/005-kql-template-driven-queries.md) | KQL Template-Driven Queries | Accepted |
 | [ADR-006](adr/006-per-investigation-reply-channels.md) | Per-Investigation Reply Channels | Accepted |
+| [ADR-007](adr/007-cicd-containerization-aca-deployment.md) | CI/CD, Containerization, ACA Deployment | Accepted |
 
 ---
 

@@ -183,10 +183,7 @@ mod tests {
     #[test]
     fn test_sanitize_resource_name() {
         assert_eq!(sanitize_resource_name("my-app_v2.0"), "my-app_v2.0");
-        assert_eq!(
-            sanitize_resource_name("'; DROP TABLE--"),
-            "DROPTABLE--"
-        );
+        assert_eq!(sanitize_resource_name("'; DROP TABLE--"), "DROPTABLE--");
     }
 
     #[test]

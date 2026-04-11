@@ -15,10 +15,13 @@ pub struct AzureConfig {
     /// Azure subscription ID
     pub subscription_id: Option<String>,
     /// Log Analytics workspace IDs to query
+    #[serde(default)]
     pub workspace_ids: Vec<String>,
     /// Application Insights app IDs
+    #[serde(default)]
     pub app_insights_ids: Vec<String>,
     /// Resource group names to monitor
+    #[serde(default)]
     pub resource_groups: Vec<String>,
     /// Auth mode: "azure" (DefaultAzureCredential) or "mock" (dev token)
     #[serde(default = "default_auth_mode")]
@@ -71,6 +74,17 @@ pub struct MetricsAgentConfig {
 pub struct WebhookConfig {
     pub listen_addr: String,
     pub listen_port: u16,
+    /// The platform's own Azure resource ID. Alerts targeting this resource
+    /// are acknowledged but not investigated, breaking the OTLP feedback loop.
+    #[serde(default)]
+    pub self_resource_id: Option<String>,
+    /// Alert channel capacity (queued alerts before returning 503)
+    #[serde(default = "default_channel_capacity")]
+    pub channel_capacity: usize,
+}
+
+fn default_channel_capacity() -> usize {
+    64
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -108,6 +122,8 @@ impl Default for PlatformConfig {
             webhook: WebhookConfig {
                 listen_addr: "0.0.0.0".to_string(),
                 listen_port: 8080,
+                self_resource_id: None,
+                channel_capacity: 64,
             },
             store: StoreConfig {
                 database_url: "sqlite://data/sre-agents.db".to_string(),

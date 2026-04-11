@@ -7,7 +7,6 @@ use sre_common::messages::*;
 
 use crate::traits::SreAgent;
 
-
 /// TriageAgent — classifies incoming alerts and creates investigation plans.
 ///
 /// Responsibilities:
@@ -18,6 +17,12 @@ use crate::traits::SreAgent;
 /// - Extract parameters for downstream agents (resource name, timespan, etc.)
 pub struct TriageAgent {
     id: AgentId,
+}
+
+impl Default for TriageAgent {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TriageAgent {
@@ -106,10 +111,7 @@ impl SreAgent for TriageAgent {
         ]
     }
 
-    async fn run(
-        &self,
-        mut inbox: mpsc::Receiver<InboundMessage>,
-    ) -> Result<(), AgentError> {
+    async fn run(&self, mut inbox: mpsc::Receiver<InboundMessage>) -> Result<(), AgentError> {
         info!(agent_id = %self.id, "TriageAgent started");
 
         while let Some(inbound) = inbox.recv().await {
@@ -189,7 +191,8 @@ fn extract_resource_name(resource_id: &str) -> String {
 fn extract_resource_group(resource_id: &str) -> Option<String> {
     let parts: Vec<&str> = resource_id.split('/').collect();
     for (i, part) in parts.iter().enumerate() {
-        if part.eq_ignore_ascii_case("resourceGroups") || part.eq_ignore_ascii_case("resourcegroups")
+        if part.eq_ignore_ascii_case("resourceGroups")
+            || part.eq_ignore_ascii_case("resourcegroups")
         {
             return parts.get(i + 1).map(|s| s.to_string());
         }

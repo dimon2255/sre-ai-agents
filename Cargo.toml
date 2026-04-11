@@ -35,6 +35,13 @@ chrono.workspace = true
 anyhow.workspace = true
 config.workspace = true
 
+[dev-dependencies]
+reqwest = { workspace = true }
+tempfile.workspace = true
+tokio = { workspace = true }
+serde_json.workspace = true
+sqlx = { workspace = true }
+
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
@@ -90,3 +97,8 @@ axum = "0.8"
 wiremock = "0.6"
 tempfile = "3"
 tokio-test = "0.4"
+
+[profile.release]
+lto = "thin"
+strip = true
+codegen-units = 1

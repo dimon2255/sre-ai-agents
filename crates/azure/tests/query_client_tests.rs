@@ -3,10 +3,10 @@ use std::sync::Arc;
 use wiremock::matchers::{body_string_contains, header, method, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+use sre_azure::alerts_client::AzureAlertsClient;
 use sre_azure::auth::MockTokenProvider;
 use sre_azure::models::AzureCommonAlert;
 use sre_azure::query_client::AzureQueryClient;
-use sre_azure::alerts_client::AzureAlertsClient;
 
 /// Sample KQL response matching Azure Log Analytics format
 fn sample_kql_response(rows: Vec<Vec<serde_json::Value>>) -> serde_json::Value {
@@ -97,7 +97,11 @@ async fn test_query_log_analytics_success() {
     let client = test_client(&mock_server.uri());
 
     let result = client
-        .query_log_analytics("test-workspace", "AppExceptions | where TimeGenerated > ago(30m)", "PT30M")
+        .query_log_analytics(
+            "test-workspace",
+            "AppExceptions | where TimeGenerated > ago(30m)",
+            "PT30M",
+        )
         .await
         .unwrap();
 
@@ -161,14 +165,12 @@ async fn test_query_handles_server_error() {
 
     Mock::given(method("POST"))
         .and(path_regex("/v1/workspaces/.*/query"))
-        .respond_with(
-            ResponseTemplate::new(500).set_body_json(serde_json::json!({
-                "error": {
-                    "message": "Internal Server Error",
-                    "code": "InternalError"
-                }
-            })),
-        )
+        .respond_with(ResponseTemplate::new(500).set_body_json(serde_json::json!({
+            "error": {
+                "message": "Internal Server Error",
+                "code": "InternalError"
+            }
+        })))
         .mount(&mock_server)
         .await;
 
@@ -225,15 +227,15 @@ async fn test_query_injects_bearer_token() {
         .await;
 
     let credential = Arc::new(MockTokenProvider::new("my-secret-token"));
-    let client = AzureQueryClient::new(credential)
-        .with_log_analytics_base_url(&mock_server.uri());
+    let client = AzureQueryClient::new(credential).with_log_analytics_base_url(&mock_server.uri());
 
-    let result = client
-        .query_log_analytics("ws-1", "test", "PT1H")
-        .await;
+    let result = client.query_log_analytics("ws-1", "test", "PT1H").await;
 
     // If the bearer token wasn't injected correctly, wiremock returns 404
-    assert!(result.is_ok(), "Bearer token should be injected: {result:?}");
+    assert!(
+        result.is_ok(),
+        "Bearer token should be injected: {result:?}"
+    );
 }
 
 #[tokio::test]
@@ -251,11 +253,12 @@ async fn test_query_sends_kql_in_body() {
 
     let client = test_client(&mock_server.uri());
 
-    let result = client
-        .query_log_analytics("ws-1", kql, "PT30M")
-        .await;
+    let result = client.query_log_analytics("ws-1", kql, "PT30M").await;
 
-    assert!(result.is_ok(), "KQL query should be in request body: {result:?}");
+    assert!(
+        result.is_ok(),
+        "KQL query should be in request body: {result:?}"
+    );
 }
 
 // ─── Alert Parsing Tests ───
@@ -294,17 +297,17 @@ async fn test_parse_common_alert_schema() {
     let alert = AzureAlertsClient::parse_common_alert(&payload).unwrap();
 
     assert_eq!(alert.alert_rule, "High Error Rate");
-    assert!(matches!(alert.severity, sre_common::messages::AlertSeverity::Sev1));
+    assert!(matches!(
+        alert.severity,
+        sre_common::messages::AlertSeverity::Sev1
+    ));
     assert_eq!(alert.signal_type, "Metric");
     assert_eq!(alert.monitor_condition, "Fired");
     assert_eq!(
         alert.affected_resource,
         "/subscriptions/abc/resourceGroups/prod-rg/providers/Microsoft.Web/sites/payments-api"
     );
-    assert_eq!(
-        alert.description.as_deref(),
-        Some("Error rate exceeded 5%")
-    );
+    assert_eq!(alert.description.as_deref(), Some("Error rate exceeded 5%"));
     assert!(alert.raw_context.is_some());
 }
 
@@ -334,16 +337,15 @@ async fn test_parse_common_alert_invalid_severity() {
 
 #[test]
 fn test_kql_table_to_records() {
-    let response: sre_azure::models::KqlQueryResponse = serde_json::from_value(
-        sample_kql_response(vec![vec![
+    let response: sre_azure::models::KqlQueryResponse =
+        serde_json::from_value(sample_kql_response(vec![vec![
             "2026-04-06T02:00:00Z".into(),
             "NullReferenceException".into(),
             "prob-001".into(),
             serde_json::json!(42),
             serde_json::json!(3),
-        ]]),
-    )
-    .unwrap();
+        ]]))
+        .unwrap();
 
     let table = &response.tables[0];
     assert_eq!(table.row_count(), 1);

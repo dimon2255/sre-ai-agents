@@ -94,10 +94,7 @@ impl AzureQueryClient {
             .get_token("https://api.applicationinsights.io/.default")
             .await?;
 
-        let url = format!(
-            "{}/v1/apps/{app_id}/query",
-            self.app_insights_base_url
-        );
+        let url = format!("{}/v1/apps/{app_id}/query", self.app_insights_base_url);
 
         debug!(
             app_id,
@@ -143,7 +140,12 @@ impl AzureQueryClient {
 
         if !status.is_success() {
             let error_body = response.text().await.unwrap_or_default();
-            warn!(url, status = status.as_u16(), elapsed_ms, "KQL query failed");
+            warn!(
+                url,
+                status = status.as_u16(),
+                elapsed_ms,
+                "KQL query failed"
+            );
             return Err(AzureError::ApiError {
                 status: status.as_u16(),
                 message: error_body,

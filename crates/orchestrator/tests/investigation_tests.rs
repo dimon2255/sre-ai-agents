@@ -7,8 +7,8 @@ use sre_agents::traits::SreAgent;
 use sre_agents::{AgentHandle, LogsAgent, MetricsAgent, TriageAgent};
 use sre_azure::auth::MockTokenProvider;
 use sre_azure::query_client::AzureQueryClient;
-use sre_common::messages::*;
 use sre_common::config::PlatformConfig;
+use sre_common::messages::*;
 use sre_orchestrator::{AgentRouter, Orchestrator};
 use sre_store::{EventLog, SqliteStore, WorkflowStore};
 

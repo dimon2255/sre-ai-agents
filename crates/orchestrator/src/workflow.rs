@@ -65,10 +65,7 @@ impl InvestigationWorkflow {
     }
 
     /// Transition to a new state, validating the transition is legal
-    pub fn transition_to(
-        &mut self,
-        new_state: WorkflowState,
-    ) -> Result<(), OrchestratorError> {
+    pub fn transition_to(&mut self, new_state: WorkflowState) -> Result<(), OrchestratorError> {
         if !self.record.state.can_transition_to(&new_state) {
             return Err(OrchestratorError::InvalidStateTransition {
                 from: self.record.state.to_string(),
@@ -128,8 +125,7 @@ impl InvestigationWorkflow {
         let overall_confidence = if sorted_findings.is_empty() {
             0.0
         } else {
-            sorted_findings.iter().map(|f| f.confidence).sum::<f64>()
-                / sorted_findings.len() as f64
+            sorted_findings.iter().map(|f| f.confidence).sum::<f64>() / sorted_findings.len() as f64
         };
 
         // Build summary
@@ -187,11 +183,7 @@ impl InvestigationWorkflow {
 
         summary.push_str(". Top findings: ");
 
-        let top: Vec<&str> = findings
-            .iter()
-            .take(3)
-            .map(|f| f.title.as_str())
-            .collect();
+        let top: Vec<&str> = findings.iter().take(3).map(|f| f.title.as_str()).collect();
         summary.push_str(&top.join("; "));
 
         summary

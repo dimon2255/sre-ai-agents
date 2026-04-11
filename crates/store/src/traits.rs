@@ -46,8 +46,5 @@ pub trait EventLog: Send + Sync {
     ) -> Result<Vec<AgentMessage>, StoreError>;
 
     /// Get event count for a correlation ID
-    async fn count_by_correlation_id(
-        &self,
-        correlation_id: &Uuid,
-    ) -> Result<u64, StoreError>;
+    async fn count_by_correlation_id(&self, correlation_id: &Uuid) -> Result<u64, StoreError>;
 }

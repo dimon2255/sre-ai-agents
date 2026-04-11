@@ -67,8 +67,7 @@ impl Orchestrator {
     ) -> Result<InvestigationReport, OrchestratorError> {
         let mut workflow = InvestigationWorkflow::new(&alert);
         let correlation_id = *workflow.id();
-        let agent_timeout =
-            Duration::from_secs(self.config.orchestrator.agent_timeout_secs);
+        let agent_timeout = Duration::from_secs(self.config.orchestrator.agent_timeout_secs);
 
         // Per-investigation reply channel (ADR-006)
         let (reply_tx, mut reply_rx) = mpsc::channel::<AgentMessage>(64);
@@ -130,12 +129,8 @@ impl Orchestrator {
         }
 
         // Wait for triage response on the scoped channel
-        let triage_response = timeout::recv_with_timeout(
-            &mut reply_rx,
-            agent_timeout,
-            "triage",
-        )
-        .await;
+        let triage_response =
+            timeout::recv_with_timeout(&mut reply_rx, agent_timeout, "triage").await;
 
         let triage_result = match triage_response {
             Some(msg) => {
@@ -143,7 +138,10 @@ impl Orchestrator {
                 match msg.payload {
                     AgentPayload::TriageResult(result) => result,
                     other => {
-                        warn!("Unexpected payload from triage: {:?}", std::mem::discriminant(&other));
+                        warn!(
+                            "Unexpected payload from triage: {:?}",
+                            std::mem::discriminant(&other)
+                        );
                         workflow.transition_to(WorkflowState::Failed)?;
                         return Ok(workflow.generate_report());
                     }
@@ -162,8 +160,7 @@ impl Orchestrator {
 
         // ── Step 2: Fan out to investigation agents ──
 
-        workflow
-            .transition_to(WorkflowState::Investigating)?;
+        workflow.transition_to(WorkflowState::Investigating)?;
         if let Err(e) = self
             .store
             .update_state(&correlation_id, WorkflowState::Investigating)
@@ -238,8 +235,7 @@ impl Orchestrator {
 
         // ── Step 4: Synthesize and report ──
 
-        workflow
-            .transition_to(WorkflowState::Synthesizing)?;
+        workflow.transition_to(WorkflowState::Synthesizing)?;
         if let Err(e) = self
             .store
             .update_state(&correlation_id, WorkflowState::Synthesizing)
@@ -249,7 +245,7 @@ impl Orchestrator {
         }
 
         // Determine final state before generating report so escalation is reflected
-        let final_state = if FindingAggregator::should_escalate(&workflow.findings()) {
+        let final_state = if FindingAggregator::should_escalate(workflow.findings()) {
             WorkflowState::Escalated
         } else {
             WorkflowState::Resolved

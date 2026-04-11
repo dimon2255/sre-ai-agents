@@ -1,7 +1,11 @@
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
+use axum::routing::{get, post};
+use axum::Router;
 use clap::{Parser, Subcommand};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Semaphore};
 use tracing::{error, info};
 use tracing_subscriber::{fmt, EnvFilter};
 
@@ -12,6 +16,8 @@ use sre_common::config::PlatformConfig;
 use sre_common::messages::*;
 use sre_orchestrator::{AgentRouter, Orchestrator};
 use sre_store::SqliteStore;
+
+use crate::webhook::AppState;
 
 mod webhook;
 
@@ -82,7 +88,7 @@ fn load_config(path: &str) -> anyhow::Result<PlatformConfig> {
         .add_source(config::Environment::with_prefix("SRE").separator("__"));
 
     let settings = builder.build()?;
-    let config: PlatformConfig = settings.try_deserialize().unwrap_or_default();
+    let config: PlatformConfig = settings.try_deserialize()?;
 
     info!("Configuration loaded from {path}");
     Ok(config)
@@ -119,20 +125,19 @@ async fn bootstrap(
     let event_log = store.clone();
 
     // Initialize Azure credential based on config auth_mode
-    let credential: Arc<dyn sre_azure::TokenProvider> =
-        match config.azure.auth_mode.as_str() {
-            "mock" => {
-                info!("Using mock token provider (auth_mode=mock)");
-                Arc::new(sre_azure::MockTokenProvider::new("dev-mock-token"))
+    let credential: Arc<dyn sre_azure::TokenProvider> = match config.azure.auth_mode.as_str() {
+        "mock" => {
+            info!("Using mock token provider (auth_mode=mock)");
+            Arc::new(sre_azure::MockTokenProvider::new("dev-mock-token"))
+        }
+        _ => match AzureCredentialProvider::new() {
+            Ok(cred) => Arc::new(cred),
+            Err(e) => {
+                info!("Azure credential not available ({e}), falling back to mock");
+                Arc::new(sre_azure::MockTokenProvider::new("dev-token"))
             }
-            _ => match AzureCredentialProvider::new() {
-                Ok(cred) => Arc::new(cred),
-                Err(e) => {
-                    info!("Azure credential not available ({e}), falling back to mock");
-                    Arc::new(sre_azure::MockTokenProvider::new("dev-token"))
-                }
-            },
-        };
+        },
+    };
 
     let query_client = Arc::new(AzureQueryClient::new(credential.clone()));
 
@@ -158,10 +163,7 @@ async fn bootstrap(
 
     if config.agents.metrics.enabled {
         spawn_agent(
-            MetricsAgent::new(
-                query_client.clone(),
-                config.azure.app_insights_ids.clone(),
-            ),
+            MetricsAgent::new(query_client.clone(), config.azure.app_insights_ids.clone()),
             &mut router,
             &mut join_handles,
         );
@@ -172,20 +174,119 @@ async fn bootstrap(
     Ok((orchestrator, join_handles))
 }
 
-/// Run the webhook server
+/// Run the webhook server with orchestrator loop and health probes.
 async fn run_server(config: PlatformConfig) -> anyhow::Result<()> {
-    let listen_addr = format!("{}:{}", config.webhook.listen_addr, config.webhook.listen_port);
+    let listen_addr = format!(
+        "{}:{}",
+        config.webhook.listen_addr, config.webhook.listen_port
+    );
 
-    let (_orchestrator, _agent_handles) = bootstrap(&config).await?;
+    let (mut orchestrator, _agent_handles) = bootstrap(&config).await?;
 
-    info!(listen_addr = %listen_addr, "Starting webhook server");
+    // Shared state for probes and webhook handlers
+    let heartbeat = Arc::new(AtomicU64::new(webhook::now_epoch_ms()));
+    let investigations = Arc::new(Semaphore::new(
+        config.orchestrator.max_concurrent_investigations as usize,
+    ));
+    let started = Arc::new(AtomicBool::new(false));
 
-    // TODO: Wire up axum server with webhook::handle_azure_alert
-    // For now, just keep the process alive
+    // Alert channel: webhook handler sends, orchestrator loop receives
+    let (alert_tx, mut alert_rx) = mpsc::channel::<AlertInfo>(config.webhook.channel_capacity);
+
+    let store = Arc::new(SqliteStore::new(&config.store.database_url).await?);
+
+    let app_state = AppState {
+        alert_tx,
+        store,
+        heartbeat: heartbeat.clone(),
+        investigations: investigations.clone(),
+        started: started.clone(),
+        config: config.clone(),
+    };
+
+    let app = Router::new()
+        .route("/startupz", get(webhook::startupz))
+        .route("/healthz", get(webhook::healthz))
+        .route("/readyz", get(webhook::readyz))
+        .route("/api/v1/alerts/azure", post(webhook::handle_azure_alert))
+        .with_state(app_state);
+
+    // Spawn the orchestrator loop as a background task
+    let orch_heartbeat = heartbeat.clone();
+    let orch_semaphore = investigations.clone();
+    let max_concurrent = config.orchestrator.max_concurrent_investigations;
+    tokio::spawn(async move {
+        info!("Orchestrator loop started (max_concurrent={max_concurrent})");
+        loop {
+            // Update heartbeat at the top of every iteration
+            orch_heartbeat.store(webhook::now_epoch_ms(), Ordering::Relaxed);
+
+            tokio::select! {
+                alert = alert_rx.recv() => {
+                    match alert {
+                        Some(alert_info) => {
+                            let alert_id = alert_info.alert_id.clone();
+
+                            // Acquire semaphore permit before investigating
+                            let permit = match orch_semaphore.clone().acquire_owned().await {
+                                Ok(p) => p,
+                                Err(_) => {
+                                    error!("Investigation semaphore closed");
+                                    break;
+                                }
+                            };
+
+                            info!(
+                                alert_id = %alert_id,
+                                active = max_concurrent as usize - orch_semaphore.available_permits(),
+                                "Dispatching investigation"
+                            );
+
+                            match orchestrator.investigate(alert_info).await {
+                                Ok(report) => {
+                                    info!(
+                                        alert_id = %alert_id,
+                                        findings = report.findings.len(),
+                                        confidence = report.overall_confidence,
+                                        duration_ms = report.duration_ms,
+                                        "Investigation complete"
+                                    );
+                                }
+                                Err(e) => {
+                                    error!(alert_id = %alert_id, error = %e, "Investigation failed");
+                                }
+                            }
+
+                            drop(permit);
+                        }
+                        None => {
+                            info!("Alert channel closed — orchestrator loop exiting");
+                            break;
+                        }
+                    }
+                }
+                // Heartbeat tick — keeps the heartbeat fresh when idle,
+                // preventing false liveness probe failures.
+                _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+            }
+        }
+    });
+
+    // Mark startup complete — probes will now report healthy
+    started.store(true, Ordering::Relaxed);
+
+    let listener = tokio::net::TcpListener::bind(&listen_addr).await?;
+    info!(listen_addr = %listen_addr, "Webhook server listening");
     info!("SRE Agent Platform running. Press Ctrl+C to stop.");
-    tokio::signal::ctrl_c().await?;
 
-    info!("Shutting down...");
+    // Serve with graceful shutdown on Ctrl+C
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async {
+            tokio::signal::ctrl_c().await.ok();
+            info!("Shutting down...");
+        })
+        .await?;
+
     Ok(())
 }
 

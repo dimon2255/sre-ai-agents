@@ -15,6 +15,12 @@ pub struct AgentRouter {
     agents: HashMap<String, AgentHandle>,
 }
 
+impl Default for AgentRouter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AgentRouter {
     pub fn new() -> Self {
         Self {

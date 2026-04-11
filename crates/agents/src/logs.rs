@@ -49,8 +49,11 @@ impl LogsAgent {
 
         for workspace_id in &self.workspace_ids {
             // Query 1: Error spike analysis
-            let kql =
-                kql_templates::error_spike(&params.resource_name, params.timespan_minutes, self.default_max_rows);
+            let kql = kql_templates::error_spike(
+                &params.resource_name,
+                params.timespan_minutes,
+                self.default_max_rows,
+            );
 
             let start = std::time::Instant::now();
             match self
@@ -60,11 +63,7 @@ impl LogsAgent {
             {
                 Ok(response) => {
                     let duration_ms = start.elapsed().as_millis() as u64;
-                    let row_count: u32 = response
-                        .tables
-                        .iter()
-                        .map(|t| t.row_count() as u32)
-                        .sum();
+                    let row_count: u32 = response.tables.iter().map(|t| t.row_count() as u32).sum();
 
                     queries.push(QueryRecord {
                         template_name: "error_spike".to_string(),
@@ -80,7 +79,9 @@ impl LogsAgent {
                     if let Some(table) = response.tables.first() {
                         let records = table.to_records();
                         if !records.is_empty() {
-                            findings.push(self.analyze_error_spike_results(&records, &params.resource_name));
+                            findings.push(
+                                self.analyze_error_spike_results(&records, &params.resource_name),
+                            );
                         }
                     }
                 }
@@ -117,11 +118,7 @@ impl LogsAgent {
             {
                 Ok(response) => {
                     let duration_ms = start.elapsed().as_millis() as u64;
-                    let row_count: u32 = response
-                        .tables
-                        .iter()
-                        .map(|t| t.row_count() as u32)
-                        .sum();
+                    let row_count: u32 = response.tables.iter().map(|t| t.row_count() as u32).sum();
 
                     queries.push(QueryRecord {
                         template_name: "error_details".to_string(),
@@ -137,7 +134,9 @@ impl LogsAgent {
                     if let Some(table) = response.tables.first() {
                         let records = table.to_records();
                         if !records.is_empty() {
-                            findings.push(self.analyze_error_detail_results(&records, &params.resource_name));
+                            findings.push(
+                                self.analyze_error_detail_results(&records, &params.resource_name),
+                            );
                         }
                     }
                 }
@@ -280,10 +279,7 @@ impl SreAgent for LogsAgent {
         ]
     }
 
-    async fn run(
-        &self,
-        mut inbox: mpsc::Receiver<InboundMessage>,
-    ) -> Result<(), AgentError> {
+    async fn run(&self, mut inbox: mpsc::Receiver<InboundMessage>) -> Result<(), AgentError> {
         info!(agent_id = %self.id, "LogsAgent started");
 
         while let Some(inbound) = inbox.recv().await {
@@ -307,7 +303,10 @@ impl SreAgent for LogsAgent {
                     };
 
                     let summary = if findings.is_empty() {
-                        format!("No significant log anomalies found for {}", task.params.resource_name)
+                        format!(
+                            "No significant log anomalies found for {}",
+                            task.params.resource_name
+                        )
                     } else {
                         format!(
                             "Found {} findings for {}",
