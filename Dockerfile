@@ -22,4 +22,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 \
     CMD ["/usr/local/bin/sre-agents", "--help"]
 ENTRYPOINT ["sre-agents"]
-CMD ["serve", "--config", "/app/config/default.toml"]
+CMD ["--config", "/app/config/default.toml", "serve"]
