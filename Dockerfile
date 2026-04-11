@@ -13,9 +13,11 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 RUN useradd -r -s /bin/false sre
+RUN mkdir -p /app/data && chown sre:sre /app/data
 COPY --from=builder /app/target/release/sre-agents /usr/local/bin/
 COPY --from=builder /app/config/default.toml /app/config/default.toml
 USER sre
+WORKDIR /app
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 \
     CMD ["/usr/local/bin/sre-agents", "--help"]

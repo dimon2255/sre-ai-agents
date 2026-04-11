@@ -18,4 +18,7 @@ jobs:
       - name: Install cargo-audit
         run: cargo install cargo-audit
       - name: Run audit
-        run: cargo audit
+        # RUSTSEC-2023-0071: rsa timing sidechannel — transitive dep from
+        # sqlx-macros -> sqlx-mysql. We only use SQLite, never compile or
+        # link sqlx-mysql. No upstream fix available.
+        run: cargo audit --ignore RUSTSEC-2023-0071
