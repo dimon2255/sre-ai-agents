@@ -84,7 +84,7 @@ async fn main() -> anyhow::Result<()> {
 /// Load platform configuration from TOML file with env var overrides
 fn load_config(path: &str) -> anyhow::Result<PlatformConfig> {
     let builder = config::Config::builder()
-        .add_source(config::File::with_name(path).required(false))
+        .add_source(config::File::with_name(path.trim_end_matches(".toml")).required(false))
         .add_source(config::Environment::with_prefix("SRE").separator("__"));
 
     let settings = builder.build()?;
