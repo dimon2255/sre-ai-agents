@@ -1,11 +1,11 @@
 # Stage 1: Build
-FROM rust:1.75-bookworm AS builder
+FROM rust:1.85-bookworm AS builder
 WORKDIR /app
-COPY Cargo.toml Cargo.lock* ./
+COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
 COPY src/ src/
 COPY config/ config/
-RUN cargo generate-lockfile 2>/dev/null || true && cargo build --release
+RUN cargo build --release
 
 # Stage 2: Runtime
 FROM debian:bookworm-slim
