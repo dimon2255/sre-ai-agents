@@ -28,8 +28,13 @@ jobs:
               echo "Health probe returned 200 on attempt $i"
               break
             fi
+            echo "Attempt $i: not ready yet, waiting..."
             sleep 2
           done
+          # Show container logs for diagnosis if probe fails
+          echo "=== Container logs ==="
+          docker logs sre-smoke
+          echo "=== End logs ==="
           # Assert health probe succeeds
           curl -f http://localhost:8080/healthz
           # Cleanup
