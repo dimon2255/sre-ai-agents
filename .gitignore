@@ -27,3 +27,16 @@ credentials.json
 # BMAD toolkit (symlink)
 _bmad/
 data/
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfplan
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+*.tfvars
+!*.tfvars.example

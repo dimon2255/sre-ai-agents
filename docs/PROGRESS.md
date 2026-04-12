@@ -107,49 +107,86 @@
 
 ## Phase 2 — Production Hardening: Gated Remediation
 
-**Status**: Not Started
-**Duration**: 10-14 weeks
+**Status**: In Progress
+**Duration**: 10-14 weeks (three sub-phases)
 **Goal**: Production-grade platform with human-in-the-loop remediation
 
-### Scope
+### Phase 2a — Staging Deploy & Observability (3-4 weeks)
 
-| Component | Status | Notes |
-|-----------|--------|-------|
-| TraceAgent (App Insights distributed traces) | Not Started | |
-| InfraAgent (Azure Activity Log, Resource Health) | Not Started | |
-| RemediationAgent (proposals, risk levels, rollback plans) | Not Started | |
-| Approval Gate (Slack/Teams integration) | Not Started | |
-| gRPC API (external integration surface) | Not Started | |
-| PostgreSQL (replace SQLite) | Not Started | |
-| NATS JetStream (event bus, horizontal scaling) | Not Started | |
-| Notification Engine (Slack, Teams, PagerDuty) | Not Started | |
-| Remediation guardrails (rate limits, blast radius) | Not Started | |
-| ARM REST API write operations (scoped Contributor) | Not Started | |
+**Status**: In Progress (started 2026-04-12)
 
-### Exit Criteria
+| # | Component | Status | Notes |
+|---|-----------|--------|-------|
+| 1 | Staging deployment (Terraform + ACA) | In Progress | `infra/staging/`, release workflow, OIDC auth |
+| 2 | OpenTelemetry instrumentation | Not Started | Deferred from Phase 1; instrument before expanding |
+| 3 | PostgreSQL migration (replace SQLite) | Not Started | `psql-sre-agents-staging` exists; swap store backend |
+| 4 | TraceAgent (distributed traces) | Not Started | App Insights trace correlation |
+| 5 | InfraAgent (Activity Log, Resource Health) | Not Started | Azure Activity Log + Resource Health API |
+| 6 | Webhook authentication (ADR-008) | Not Started | Shared secret + Azure AD bearer token validation |
+| 7 | Remediation safety model (ADR-009 draft) | Not Started | Threat model for Phase 2c, design only |
+| 8 | Load test baseline | Not Started | Target: 50 concurrent investigations, P99 < 5s |
 
+#### Phase 2a Exit Criteria
+
+- [x] Terraform deploys ACA app to staging via GitHub Actions release workflow
+- [ ] OpenTelemetry traces flow across orchestrator and all agents
+- [ ] PostgreSQL stores full audit history (replaces SQLite)
 - [ ] TraceAgent correlates distributed traces and identifies dependency failures
 - [ ] InfraAgent detects recent deployments/config changes correlated with incidents
+- [ ] Webhook endpoint authenticated (ADR-008 implemented)
+- [ ] Load test baseline established (50 concurrent investigations without degradation)
+
+### Phase 2b — Scaling Infrastructure (3-4 weeks)
+
+**Status**: Not Started
+
+| # | Component | Status | Notes |
+|---|-----------|--------|-------|
+| 1 | NATS JetStream integration (ADR-010) | Not Started | Event bus replacing mpsc channels |
+| 2 | Horizontal scaling (multi-replica) | Not Started | Requires NATS for work distribution |
+| 3 | Notification Engine (Slack, Teams, PagerDuty) | Not Started | Rides on NATS subjects |
+| 4 | InboundMessage serialization migration | Not Started | Replace `mpsc::Sender` with NATS reply subject |
+| 5 | gRPC API (external integration surface) | Not Started | tonic-based API for external systems |
+
+#### Phase 2b Exit Criteria
+
+- [ ] NATS enables message replay for debugging
+- [ ] Platform runs multi-replica behind ACA scaling
+- [ ] Notification engine delivers to Slack/Teams/PagerDuty
+- [ ] gRPC API allows external systems to trigger and query investigations
+- [ ] Load test re-validated: 50 concurrent investigations after NATS migration
+
+### Phase 2c — Gated Remediation (4-5 weeks)
+
+**Status**: Not Started
+
+| # | Component | Status | Notes |
+|---|-----------|--------|-------|
+| 1 | RemediationAgent (proposals, risk levels, rollback plans) | Not Started | Playbook-driven |
+| 2 | Approval Gate — separate `sre-gates` crate | Not Started | Security boundary; Slack/Teams interactive messages |
+| 3 | Remediation guardrails (rate limits, blast radius) | Not Started | Per ADR-009 threat model |
+| 4 | ARM REST API write operations | Not Started | Scoped RBAC, not broad Contributor |
+| 5 | RiskLevel enum + auto-approve policy | Not Started | ReadOnly / LowRisk / HighRisk / Destructive |
+| 6 | Identity separation for remediation (ADR-011) | Not Started | Separate MI from `sre-agents-identity` |
+
+#### Phase 2c Exit Criteria
+
 - [ ] RemediationAgent proposes actions with risk levels and rollback plans
 - [ ] Approval gate works end-to-end (Slack -> approve -> execute -> verify)
 - [ ] Rate limiting prevents runaway remediation
 - [ ] Destructive actions require dual approval
-- [ ] PostgreSQL stores full audit history
-- [ ] NATS enables message replay for debugging
-- [ ] gRPC API allows external systems to trigger and query investigations
 - [ ] Platform survives agent crashes gracefully
-- [ ] Load tested: 50 concurrent investigations without degradation
+- [ ] Load test re-validated after remediation pipeline added
 
-### Planned ADRs
-
-- **ADR-008: Webhook Authentication** — Secure the `/api/v1/alerts/azure` endpoint. Options: shared secret in custom header (`X-Webhook-Secret`), Azure AD bearer token validation, or both. Phase 1 runs behind ACA ingress with no public auth; Phase 2 must add authentication before exposing to external action groups.
-
-### Key Decisions (Planned)
+### Key Decisions
 
 - NATS JetStream for event bus (enables horizontal scaling + replay)
 - RiskLevel enum: ReadOnly / LowRisk / HighRisk / Destructive
 - Auto-approve only at confidence >= 0.95 and RiskLevel::LowRisk
 - `SreDataSource` trait introduced for multi-provider abstraction
+- Approval gate as separate crate (`sre-gates`) — trust boundary separation
+- `sre-agents-identity` acceptable for Phase 2a/2b; scoped identity required before Phase 2c (ADR-011)
+- Single OIDC federated credential per GitHub environment
 
 ---
 
@@ -196,6 +233,10 @@
 | [ADR-005](adr/005-kql-template-driven-queries.md) | KQL Template-Driven Queries | Accepted |
 | [ADR-006](adr/006-per-investigation-reply-channels.md) | Per-Investigation Reply Channels | Accepted |
 | [ADR-007](adr/007-cicd-containerization-aca-deployment.md) | CI/CD, Containerization, ACA Deployment | Accepted |
+| ADR-008 | Webhook Authentication | Planned (Phase 2a) |
+| ADR-009 | Remediation Safety Model | Planned (Phase 2a draft, Phase 2c impl) |
+| ADR-010 | NATS JetStream Design | Planned (Phase 2b) |
+| ADR-011 | Identity Separation for Remediation | Planned (Phase 2c) |
 
 ---
 
