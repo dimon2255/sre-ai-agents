@@ -147,6 +147,44 @@ impl Orchestrator {
 }
 ```
 
+### Deep dive: `self` (owned) — consuming the object
+
+`self` (no `&`) means the method **takes ownership** of the object. After you call it, the original variable is **gone** — you can't use it anymore. The method consumed it.
+
+```rust
+impl DatabaseConnection {
+    // Takes ownership — connection is consumed
+    pub fn close(self) {
+        // self is dropped at the end, cleaning up resources
+    }
+}
+
+let conn = DatabaseConnection::new();
+conn.close();    // conn is MOVED into close()
+conn.query();    // COMPILE ERROR: conn no longer exists
+```
+
+C# equivalent would be like calling `Dispose()` and then having the compiler **physically prevent** you from touching the object again. C# can't do that — you can call a disposed object and get a runtime exception. Rust catches it at compile time.
+
+**When you see `self` (owned) in practice:**
+
+| Pattern | Why `self` (owned) |
+|---------|--------------------|
+| `.close(self)` | Resource cleanup — file handle, connection |
+| `.into_string(self)` | Type conversion — consumes old type, returns new one |
+| `.build(self)` | Builder pattern — consumes the builder, returns the built thing |
+| `.into_parts(self)` | Destructuring — splits an object into its fields |
+
+It's the rarest of the three. In our codebase we don't use it — everything is `&self` (read) or `&mut self` (mutate). You'll mostly see `self` in standard library types like `String::into_bytes(self)`.
+
+### Cheat sheet
+
+| Syntax | C# Analogy | Object after call |
+|--------|------------|-------------------|
+| `&self` | `this` (readonly) | Still usable |
+| `&mut self` | `this` (can modify) | Still usable |
+| `self` | `this` + Dispose + compiler enforced death | **Gone** |
+
 ### Why this matters in our codebase
 
 We changed `Orchestrator::investigate` from `&mut self` to `&self`. With `&mut self`, Rust guarantees only ONE caller can use the orchestrator at a time (like a C# `lock`). We couldn't `Arc::new()` and share it across tasks. With `&self`, multiple tasks can call `investigate()` concurrently — because they're all just reading shared state (the `Arc`-wrapped store, router, etc. handle their own internal synchronization).
