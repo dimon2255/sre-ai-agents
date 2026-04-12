@@ -189,7 +189,339 @@ It's the rarest of the three. In our codebase we don't use it — everything is 
 
 We changed `Orchestrator::investigate` from `&mut self` to `&self`. With `&mut self`, Rust guarantees only ONE caller can use the orchestrator at a time (like a C# `lock`). We couldn't `Arc::new()` and share it across tasks. With `&self`, multiple tasks can call `investigate()` concurrently — because they're all just reading shared state (the `Arc`-wrapped store, router, etc. handle their own internal synchronization).
 
-## 6. `Cargo.toml` — Project Configuration
+## 6. Traits — Interfaces on Steroids
+
+A **trait** is Rust's version of a C# `interface` — a contract that says "any type implementing me guarantees these methods exist." Unlike C# interfaces, traits carry no data, only behavior.
+
+### Defining a trait
+
+```rust
+// Rust
+trait Investigate {
+    // Required — every implementor must provide this
+    fn gather_evidence(&self) -> Vec<String>;
+    fn severity(&self) -> u8;
+
+    // Default method — implementors get this for free (can override)
+    fn is_critical(&self) -> bool {
+        self.severity() >= 4
+    }
+}
+```
+
+```csharp
+// C# equivalent
+public interface IInvestigate {
+    List<string> GatherEvidence();
+    byte Severity();
+
+    // Default interface method (C# 8+)
+    bool IsCritical() => Severity() >= 4;
+}
+```
+
+### `impl Trait for MyStruct` — fulfilling the contract
+
+This is the same `impl` block you already know from section 4, but now you're attaching **trait behavior** to a struct instead of standalone methods. Side by side:
+
+```rust
+// Standalone methods — behavior that belongs to Server
+impl Server {
+    fn new(name: &str, cpu: f64) -> Self {
+        Server { name: name.to_string(), cpu_percent: cpu }
+    }
+
+    fn is_healthy(&self) -> bool {
+        self.cpu_percent < 90.0
+    }
+}
+
+// Trait implementation — Server now fulfills the Investigate contract
+impl Investigate for Server {
+    fn gather_evidence(&self) -> Vec<String> {
+        vec![format!("{} CPU at {}%", self.name, self.cpu_percent)]
+    }
+
+    fn severity(&self) -> u8 {
+        if self.cpu_percent > 95.0 { 5 } else { 2 }
+    }
+    // is_critical() — we get the default for free, no need to implement
+}
+```
+
+```csharp
+// C# equivalent — both in one block
+public class Server : IInvestigate {
+    private string name;
+    private double cpuPercent;
+
+    // Standalone methods
+    public Server(string name, double cpu) { ... }
+    public bool IsHealthy() => cpuPercent < 90.0;
+
+    // Interface implementation
+    public List<string> GatherEvidence() =>
+        new() { $"{name} CPU at {cpuPercent}%" };
+    public byte Severity() => cpuPercent > 95.0 ? 5 : 2;
+}
+```
+
+| What you write | What it means | C# analogy |
+|---|---|---|
+| `impl Server { ... }` | Methods that belong to Server | Methods on a class |
+| `trait Investigate { ... }` | A contract / capability | `interface IInvestigate` |
+| `impl Investigate for Server { ... }` | Server fulfills the contract | `class Server : IInvestigate` |
+
+### Using traits in function signatures
+
+Once a struct implements a trait, you can write functions that accept **any type implementing that trait** — this is where traits unlock polymorphism. The `&` / `&mut` / owned rules from section 5 apply here too:
+
+```rust
+// Borrows immutably — caller keeps the value
+fn log_findings(target: &impl Investigate) {
+    for finding in target.gather_evidence() {
+        println!("Finding: {}", finding);
+    }
+}
+
+// Borrows mutably — caller keeps the value but gives exclusive access
+fn escalate_if_critical(target: &mut impl Investigate) {
+    if target.is_critical() {
+        println!("ESCALATING! Severity: {}", target.severity());
+    }
+}
+
+// Takes ownership — caller can't use the value afterward
+fn archive(target: impl Investigate) {
+    let evidence = target.gather_evidence();
+    println!("Archived {} findings", evidence.len());
+    // target is dropped here — caller can't use it anymore
+}
+```
+
+```rust
+fn main() {
+    let mut srv = Server::new("web-prod-01", 97.5);
+
+    log_findings(&srv);              // borrows — srv still usable
+    escalate_if_critical(&mut srv);  // mutable borrow — srv still usable
+    archive(srv);                    // MOVES srv — can't use it after this
+    // srv.is_healthy();             // compile error: value used after move
+}
+```
+
+```csharp
+// C# equivalent — no ownership distinction, everything is a reference
+void LogFindings(IInvestigate target) { ... }
+void EscalateIfCritical(IInvestigate target) { ... }
+void Archive(IInvestigate target) { ... }
+
+var srv = new Server("web-prod-01", 97.5);
+LogFindings(srv);           // srv still usable
+EscalateIfCritical(srv);    // srv still usable
+Archive(srv);               // srv STILL usable — C# has no ownership
+```
+
+### Trait method signatures vs function parameter signatures
+
+There are two separate `&self` decisions happening, and they control different things:
+
+| Where | Controls | Example |
+|---|---|---|
+| Trait method: `fn severity(&self)` | What the **method body** can do with the struct's data | `&self` = read only, `&mut self` = can modify |
+| Function param: `target: &impl Investigate` | What the **caller** gives up | `&` = borrow, `&mut` = exclusive borrow, owned = gone |
+
+### Design impact: `&self` vs `&mut self` in trait contracts
+
+This is where traits diverge most from C# interfaces. When you define a trait method as `&self` or `&mut self`, that choice ripples through your whole architecture:
+
+```rust
+// Contract A: agents are read-only — easy to share across threads
+trait Agent {
+    fn investigate(&self, alert: &Alert) -> Report;
+}
+
+// Contract B: agents can mutate internal state — needs exclusive access
+trait Agent {
+    fn investigate(&mut self, alert: &Alert) -> Report;
+}
+```
+
+Contract A lets you wrap the agent in `Arc` and share it across async tasks. Contract B requires `Mutex` or exclusive ownership — harder to use concurrently.
+
+### How this shows up in our codebase
+
+Our `SreAgent` trait sidesteps this tension entirely by using async channels (`mpsc`). Each agent owns its own state internally and communicates through messages — so the trait methods don't need `&mut self` even though agents track internal state:
+
+```rust
+// From crates/agents/src/traits.rs
+pub trait SreAgent: Send + Sync {
+    fn id(&self) -> &AgentId;
+    fn agent_type(&self) -> AgentType;
+    fn capabilities(&self) -> Vec<String>;
+    async fn run(&self, inbox: mpsc::Receiver<InboundMessage>) -> Result<(), AgentError>;
+}
+```
+
+The orchestrator doesn't call methods on the agent directly — it sends messages through channels. This is a deliberate design choice to avoid the `&self` vs `&mut self` problem at the trait level. The `Send + Sync` bound is covered in section 7.
+
+## 7. `Send` and `Sync` — Compile-Time Thread Safety
+
+In C#, any object can be passed to any thread. If it's not thread-safe, you find out at runtime with a race condition or crash. Rust makes the compiler **enforce** thread safety at compile time using two marker traits.
+
+### What are marker traits?
+
+Marker traits are traits with **no methods**. They don't add behavior — they make a promise to the compiler:
+
+| Trait | Promise | C# analogy |
+|---|---|---|
+| `Send` | This type can be **moved** to another thread | No equivalent — C# objects can always move between threads |
+| `Sync` | This type can be **shared** (`&T`) across multiple threads simultaneously | Roughly like saying "this type is thread-safe for shared reads" |
+
+### Trait bounds — the `:` and `+` syntax
+
+When you see `SreAgent: Send + Sync`, the `:` means "requires" and `+` means "and":
+
+```rust
+// Any type implementing SreAgent must ALSO be Send AND Sync
+pub trait SreAgent: Send + Sync { ... }
+
+// You can stack as many as you need
+trait Worker: Send + Sync + 'static { ... }  // Send AND Sync AND owns all its data
+```
+
+```csharp
+// C# equivalent — multiple interface inheritance
+public interface ISreAgent : ISend, ISync { }
+// Except Send and Sync don't exist in C# — the runtime handles this implicitly
+```
+
+### Why our codebase needs `Send + Sync`
+
+Agents run as **tokio async tasks** that can execute on any thread in the pool:
+
+```rust
+// Spawning an agent on a background task
+tokio::spawn(async move {
+    agent.run(inbox).await
+});
+```
+
+`tokio::spawn` requires the future to be `Send` — the runtime might schedule it on any thread. If `SreAgent` didn't require `Send + Sync`, this code would not compile.
+
+### Which types are `Send` and `Sync`?
+
+Most types get these **automatically**. The compiler derives them if all fields qualify:
+
+| Type | Send? | Sync? | Why |
+|---|---|---|---|
+| `String`, `Vec<T>`, `i32` | Yes | Yes | Owned data, no shared state |
+| `Arc<T>` (where T: Send + Sync) | Yes | Yes | Thread-safe reference counting |
+| `Mutex<T>` | Yes | Yes | Provides synchronized access |
+| `Rc<T>` | **No** | **No** | Not thread-safe (use `Arc` instead) |
+| Raw pointers `*mut T` | **No** | **No** | Unsafe, no guarantees |
+
+You almost never implement `Send`/`Sync` manually. If all your struct's fields are `Send + Sync`, the compiler auto-derives them. Our agents use `String`, `Arc`, `PlatformConfig` — all `Send + Sync` — so the compiler is happy.
+
+### When you'd get a compile error
+
+```rust
+use std::rc::Rc;  // Rc is NOT thread-safe
+
+struct BadAgent {
+    cache: Rc<Vec<String>>,  // Rc is not Send or Sync
+}
+
+impl SreAgent for BadAgent { ... }
+// COMPILE ERROR: `Rc<Vec<String>>` cannot be sent between threads safely
+// Fix: use Arc<Vec<String>> instead
+```
+
+### C# comparison: runtime vs compile-time safety
+
+```csharp
+// C# — compiles fine, blows up at 3 AM in production
+var unsafeDict = new Dictionary<string, int>();
+Task.Run(() => unsafeDict["a"] = 1);  // race condition — no compiler warning
+Task.Run(() => unsafeDict["b"] = 2);  // intermittent data corruption
+```
+
+```rust
+// Rust — won't compile, caught before code ever runs
+use std::collections::HashMap;
+let mut map = HashMap::new();
+tokio::spawn(async move { map.insert("a", 1); });
+// COMPILE ERROR: cannot move out of `map` because it is borrowed
+// Fix: wrap in Arc<Mutex<HashMap<...>>>
+```
+
+The compiler acts as a **static analysis gate** for concurrency safety. If someone adds a non-thread-safe field to any agent struct, the build fails — not the on-call page.
+
+### `Send + Sync` vs `async` — independent concepts
+
+A common misconception is that `Send + Sync` requires `async fn` or vice versa. They solve **different problems** and are fully independent:
+
+| Concept | What it's about | Needs the other? |
+|---|---|---|
+| `Send + Sync` | **Thread safety** — can this type cross thread boundaries? | No — works in sync code too |
+| `async fn` | **Async execution** — can this function yield and resume? | No — doesn't require Send + Sync |
+
+**`Send` without async — regular OS threads:**
+
+```rust
+use std::thread;
+
+// Pure sync code, no async anywhere
+fn process_on_thread(data: impl Send + 'static) {
+    thread::spawn(move || {
+        println!("Processing on another thread");
+        // uses data here
+    });
+}
+```
+
+`Send` existed long before `async` was added to Rust. Any time you use `std::thread::spawn`, you need `Send`.
+
+**`async` without `Send` — single-threaded runtime:**
+
+```rust
+use std::rc::Rc;
+
+// Single-threaded async runtime — no Send needed
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
+    // Everything runs on ONE thread, so Send is irrelevant
+    let non_send_data = Rc::new(42);  // Rc is not Send — fine here
+    do_work(non_send_data).await;
+}
+```
+
+**Why they appear together in our codebase:**
+
+Tokio's **multi-threaded** runtime moves tasks between threads. That creates a dependency chain:
+
+```
+tokio::spawn(future)
+    → future might run on ANY thread in the pool
+    → so the future must be Send
+    → so everything the future captures must be Send
+    → so SreAgent requires Send + Sync
+```
+
+If we used a single-threaded runtime (`tokio::spawn_local`), we wouldn't need `Send + Sync` — but we'd lose multi-core parallelism, which is critical for running multiple investigations concurrently.
+
+**Cheat sheet — when you need what:**
+
+| Scenario | Need Send + Sync? | Need async? |
+|---|---|---|
+| `std::thread::spawn` (OS threads) | Yes (`Send`) | No |
+| `tokio::spawn` (multi-threaded runtime) | Yes (`Send`) | Yes |
+| `tokio::spawn_local` (single-threaded runtime) | No | Yes |
+| Sequential sync code | No | No |
+
+Think of them as two axes: **async** = "does this code wait for I/O without blocking?" and **Send + Sync** = "does this code work across multiple threads?" Our agents need both because they do I/O (querying Azure APIs) and run concurrently on a thread pool (multiple agents in parallel).
+
+## 8. `Cargo.toml` — Project Configuration
 
 This is your `.csproj` + `NuGet.config` + `.sln` combined:
 
@@ -220,7 +552,7 @@ lto = "thin"                     # Link-Time Optimization
 strip = true                     # Strip debug symbols
 ```
 
-## 7. CLI Commands — cargo vs dotnet
+## 9. CLI Commands — cargo vs dotnet
 
 | cargo | dotnet | What it does |
 |-------|--------|--------------|
@@ -233,7 +565,7 @@ strip = true                     # Strip debug symbols
 | `cargo build --release` | `dotnet build -c Release` | Optimized build |
 | `cargo test -p sre-store` | `dotnet test MyProject` | Test a single crate/project |
 
-## 8. The Big Mental Model Shift
+## 10. The Big Mental Model Shift
 
 Rust makes you **choose** ownership and borrowing (`self`, `&self`, `&mut self`) where C# hides it behind garbage collection. That's the trade — you think harder upfront, but you get:
 
