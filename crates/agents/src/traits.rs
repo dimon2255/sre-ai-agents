@@ -29,10 +29,7 @@ pub trait SreAgent: Send + Sync {
     /// responses through that channel, not a shared outbox.
     ///
     /// This method should run until the inbox channel closes.
-    async fn run(
-        &self,
-        inbox: mpsc::Receiver<InboundMessage>,
-    ) -> Result<(), AgentError>;
+    async fn run(&self, inbox: mpsc::Receiver<InboundMessage>) -> Result<(), AgentError>;
 }
 
 /// Handle held by the orchestrator to communicate with a running agent

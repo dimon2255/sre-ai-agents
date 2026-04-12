@@ -48,10 +48,7 @@ pub enum AzureError {
 #[derive(Debug, Error)]
 pub enum AgentError {
     #[error("Agent {agent_id} timed out after {timeout_secs}s")]
-    Timeout {
-        agent_id: String,
-        timeout_secs: u64,
-    },
+    Timeout { agent_id: String, timeout_secs: u64 },
 
     #[error("Agent {agent_id} failed: {reason}")]
     ExecutionFailed { agent_id: String, reason: String },

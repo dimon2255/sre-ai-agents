@@ -35,6 +35,15 @@ impl SqliteStore {
         Ok(store)
     }
 
+    /// Lightweight connectivity check for readiness probes
+    pub async fn ping(&self) -> Result<(), StoreError> {
+        sqlx::query("SELECT 1")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| StoreError::Database(e.to_string()))?;
+        Ok(())
+    }
+
     async fn run_migrations(&self) -> Result<(), StoreError> {
         sqlx::query(
             r#"
@@ -196,8 +205,8 @@ impl WorkflowStore for SqliteStore {
         report: &InvestigationReport,
     ) -> Result<(), StoreError> {
         let id = workflow_id.to_string();
-        let report_json = serde_json::to_string(report)
-            .map_err(|e| StoreError::Serialization(e.to_string()))?;
+        let report_json =
+            serde_json::to_string(report).map_err(|e| StoreError::Serialization(e.to_string()))?;
 
         sqlx::query(
             r#"
@@ -306,8 +315,7 @@ struct WorkflowRow {
 impl WorkflowRow {
     fn into_record(self) -> Result<WorkflowRecord, StoreError> {
         Ok(WorkflowRecord {
-            id: Uuid::parse_str(&self.id)
-                .map_err(|e| StoreError::Serialization(e.to_string()))?,
+            id: Uuid::parse_str(&self.id).map_err(|e| StoreError::Serialization(e.to_string()))?,
             state: serde_json::from_str(&self.state)
                 .map_err(|e| StoreError::Serialization(e.to_string()))?,
             alert_id: self.alert_id,
@@ -329,4 +337,3 @@ impl WorkflowRow {
 struct EventRow {
     payload_json: String,
 }
-

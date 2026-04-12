@@ -1,0 +1,41 @@
+name: Docker
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-smoke-test:
+    name: Build & Smoke Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build Docker image
+        run: docker build -t sre-agents:test .
+
+      - name: Verify binary starts
+        run: docker run --rm sre-agents:test --help
+
+      - name: Smoke test health probe
+        run: |
+          docker run -d --name sre-smoke -p 8080:8080 sre-agents:test
+          # Wait for startup (SQLite migration + listener bind)
+          for i in $(seq 1 15); do
+            if curl -sf http://localhost:8080/healthz > /dev/null 2>&1; then
+              echo "Health probe returned 200 on attempt $i"
+              break
+            fi
+            echo "Attempt $i: not ready yet, waiting..."
+            sleep 2
+          done
+          # Show container logs for diagnosis if probe fails
+          echo "=== Container logs ==="
+          docker logs sre-smoke
+          echo "=== End logs ==="
+          # Assert health probe succeeds
+          curl -f http://localhost:8080/healthz
+          # Cleanup
+          docker stop sre-smoke

@@ -265,14 +265,22 @@ async fn test_metrics_agent_produces_analysis_result() {
 #[test]
 fn test_agent_capabilities() {
     let triage = TriageAgent::new();
-    assert!(triage.capabilities().contains(&"alert_classification".to_string()));
+    assert!(triage
+        .capabilities()
+        .contains(&"alert_classification".to_string()));
 
     let credential = Arc::new(MockTokenProvider::new("token"));
-    let logs = LogsAgent::new(Arc::new(AzureQueryClient::new(credential.clone())), vec![], 100);
+    let logs = LogsAgent::new(
+        Arc::new(AzureQueryClient::new(credential.clone())),
+        vec![],
+        100,
+    );
     assert!(logs.capabilities().contains(&"error_analysis".to_string()));
 
     let metrics = MetricsAgent::new(Arc::new(AzureQueryClient::new(credential)), vec![]);
-    assert!(metrics.capabilities().contains(&"performance_analysis".to_string()));
+    assert!(metrics
+        .capabilities()
+        .contains(&"performance_analysis".to_string()));
 }
 
 #[test]
@@ -281,7 +289,11 @@ fn test_agent_types() {
     assert!(matches!(triage.agent_type(), AgentType::Triage));
 
     let credential = Arc::new(MockTokenProvider::new("token"));
-    let logs = LogsAgent::new(Arc::new(AzureQueryClient::new(credential.clone())), vec![], 100);
+    let logs = LogsAgent::new(
+        Arc::new(AzureQueryClient::new(credential.clone())),
+        vec![],
+        100,
+    );
     assert!(matches!(logs.agent_type(), AgentType::Logs));
 
     let metrics = MetricsAgent::new(Arc::new(AzureQueryClient::new(credential)), vec![]);

@@ -44,10 +44,8 @@ impl MetricsAgent {
 
         for app_id in &self.app_insights_ids {
             // Query 1: Latency analysis
-            let kql = kql_templates::latency_analysis(
-                &params.resource_name,
-                params.timespan_minutes,
-            );
+            let kql =
+                kql_templates::latency_analysis(&params.resource_name, params.timespan_minutes);
 
             let start = std::time::Instant::now();
             match self
@@ -57,11 +55,7 @@ impl MetricsAgent {
             {
                 Ok(response) => {
                     let duration_ms = start.elapsed().as_millis() as u64;
-                    let row_count: u32 = response
-                        .tables
-                        .iter()
-                        .map(|t| t.row_count() as u32)
-                        .sum();
+                    let row_count: u32 = response.tables.iter().map(|t| t.row_count() as u32).sum();
 
                     queries.push(QueryRecord {
                         template_name: "latency_analysis".to_string(),
@@ -77,10 +71,9 @@ impl MetricsAgent {
                     if let Some(table) = response.tables.first() {
                         let records = table.to_records();
                         if !records.is_empty() {
-                            findings.push(self.analyze_latency_results(
-                                &records,
-                                &params.resource_name,
-                            ));
+                            findings.push(
+                                self.analyze_latency_results(&records, &params.resource_name),
+                            );
                         }
                     }
                 }
@@ -106,10 +99,8 @@ impl MetricsAgent {
             }
 
             // Query 2: Failure breakdown
-            let kql = kql_templates::failure_breakdown(
-                &params.resource_name,
-                params.timespan_minutes,
-            );
+            let kql =
+                kql_templates::failure_breakdown(&params.resource_name, params.timespan_minutes);
 
             let start = std::time::Instant::now();
             match self
@@ -119,11 +110,7 @@ impl MetricsAgent {
             {
                 Ok(response) => {
                     let duration_ms = start.elapsed().as_millis() as u64;
-                    let row_count: u32 = response
-                        .tables
-                        .iter()
-                        .map(|t| t.row_count() as u32)
-                        .sum();
+                    let row_count: u32 = response.tables.iter().map(|t| t.row_count() as u32).sum();
 
                     queries.push(QueryRecord {
                         template_name: "failure_breakdown".to_string(),
@@ -139,10 +126,9 @@ impl MetricsAgent {
                     if let Some(table) = response.tables.first() {
                         let records = table.to_records();
                         if !records.is_empty() {
-                            findings.push(self.analyze_failure_results(
-                                &records,
-                                &params.resource_name,
-                            ));
+                            findings.push(
+                                self.analyze_failure_results(&records, &params.resource_name),
+                            );
                         }
                     }
                 }
@@ -165,11 +151,7 @@ impl MetricsAgent {
             {
                 Ok(response) => {
                     let duration_ms = start.elapsed().as_millis() as u64;
-                    let row_count: u32 = response
-                        .tables
-                        .iter()
-                        .map(|t| t.row_count() as u32)
-                        .sum();
+                    let row_count: u32 = response.tables.iter().map(|t| t.row_count() as u32).sum();
 
                     queries.push(QueryRecord {
                         template_name: "dependency_performance".to_string(),
@@ -211,14 +193,8 @@ impl MetricsAgent {
         // Get the most recent data point
         let latest = &records[0];
 
-        let p95 = latest
-            .get("P95")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
-        let p99 = latest
-            .get("P99")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
+        let p95 = latest.get("P95").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let p99 = latest.get("P99").and_then(|v| v.as_f64()).unwrap_or(0.0);
         let failure_rate = latest
             .get("FailureRate")
             .and_then(|v| v.as_f64())
@@ -272,7 +248,8 @@ impl MetricsAgent {
             }],
             suggestions: if failure_rate > 5.0 {
                 vec![
-                    "Investigate failure responses — check failure_breakdown for details".to_string(),
+                    "Investigate failure responses — check failure_breakdown for details"
+                        .to_string(),
                     "Review application logs for corresponding errors".to_string(),
                 ]
             } else if p95 > 2000.0 {
@@ -301,14 +278,8 @@ impl MetricsAgent {
                     .get("OperationName")
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown");
-                let code = r
-                    .get("ResultCode")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("?");
-                let count = r
-                    .get("FailureCount")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0);
+                let code = r.get("ResultCode").and_then(|v| v.as_str()).unwrap_or("?");
+                let count = r.get("FailureCount").and_then(|v| v.as_i64()).unwrap_or(0);
                 format!("{op} ({code}): {count} failures")
             })
             .collect();
@@ -358,12 +329,7 @@ impl MetricsAgent {
         // Find dependencies with high failure rates
         let failing_deps: Vec<&serde_json::Map<String, serde_json::Value>> = records
             .iter()
-            .filter(|r| {
-                r.get("FailureRate")
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.0)
-                    > 5.0
-            })
+            .filter(|r| r.get("FailureRate").and_then(|v| v.as_f64()).unwrap_or(0.0) > 5.0)
             .collect();
 
         if failing_deps.is_empty() {
@@ -382,10 +348,7 @@ impl MetricsAgent {
                     .get("DependencyType")
                     .and_then(|v| v.as_str())
                     .unwrap_or("?");
-                let rate = r
-                    .get("FailureRate")
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.0);
+                let rate = r.get("FailureRate").and_then(|v| v.as_f64()).unwrap_or(0.0);
                 format!("{target} ({dep_type}): {rate:.1}% failure rate")
             })
             .collect();
@@ -434,10 +397,7 @@ impl SreAgent for MetricsAgent {
         ]
     }
 
-    async fn run(
-        &self,
-        mut inbox: mpsc::Receiver<InboundMessage>,
-    ) -> Result<(), AgentError> {
+    async fn run(&self, mut inbox: mpsc::Receiver<InboundMessage>) -> Result<(), AgentError> {
         info!(agent_id = %self.id, "MetricsAgent started");
 
         while let Some(inbound) = inbox.recv().await {

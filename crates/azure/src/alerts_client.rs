@@ -125,8 +125,6 @@ fn parse_severity(s: &str) -> Result<AlertSeverity, AzureError> {
         "Sev2" => Ok(AlertSeverity::Sev2),
         "Sev3" => Ok(AlertSeverity::Sev3),
         "Sev4" => Ok(AlertSeverity::Sev4),
-        other => Err(AzureError::ParseError(format!(
-            "Unknown severity: {other}"
-        ))),
+        other => Err(AzureError::ParseError(format!("Unknown severity: {other}"))),
     }
 }

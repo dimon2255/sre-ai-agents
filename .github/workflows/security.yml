@@ -1,0 +1,24 @@
+name: Security Audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 8 * * 1'  # Weekly Monday 8am UTC
+
+jobs:
+  audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+      - name: Run audit
+        # RUSTSEC-2023-0071: rsa timing sidechannel — transitive dep from
+        # sqlx-macros -> sqlx-mysql. We only use SQLite, never compile or
+        # link sqlx-mysql. No upstream fix available.
+        run: cargo audit --ignore RUSTSEC-2023-0071

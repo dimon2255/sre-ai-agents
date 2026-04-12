@@ -1,8 +1,13 @@
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
+use axum::extract::DefaultBodyLimit;
+use axum::routing::{get, post};
+use axum::Router;
 use clap::{Parser, Subcommand};
-use tokio::sync::mpsc;
-use tracing::{error, info};
+use tokio::sync::{mpsc, Semaphore};
+use tracing::{error, info, warn};
 use tracing_subscriber::{fmt, EnvFilter};
 
 use sre_agents::{AgentHandle, LogsAgent, MetricsAgent, SreAgent, TriageAgent};
@@ -12,6 +17,8 @@ use sre_common::config::PlatformConfig;
 use sre_common::messages::*;
 use sre_orchestrator::{AgentRouter, Orchestrator};
 use sre_store::SqliteStore;
+
+use crate::webhook::AppState;
 
 mod webhook;
 
@@ -78,11 +85,11 @@ async fn main() -> anyhow::Result<()> {
 /// Load platform configuration from TOML file with env var overrides
 fn load_config(path: &str) -> anyhow::Result<PlatformConfig> {
     let builder = config::Config::builder()
-        .add_source(config::File::with_name(path).required(false))
+        .add_source(config::File::with_name(path.trim_end_matches(".toml")).required(false))
         .add_source(config::Environment::with_prefix("SRE").separator("__"));
 
     let settings = builder.build()?;
-    let config: PlatformConfig = settings.try_deserialize().unwrap_or_default();
+    let config: PlatformConfig = settings.try_deserialize()?;
 
     info!("Configuration loaded from {path}");
     Ok(config)
@@ -110,29 +117,32 @@ fn spawn_agent(
     }));
 }
 
-/// Bootstrap all agents and return the orchestrator + agent join handles
+/// Bootstrap all agents and return the orchestrator, agent join handles, and shared store
 async fn bootstrap(
     config: &PlatformConfig,
-) -> anyhow::Result<(Orchestrator, Vec<tokio::task::JoinHandle<()>>)> {
+) -> anyhow::Result<(
+    Orchestrator,
+    Vec<tokio::task::JoinHandle<()>>,
+    Arc<SqliteStore>,
+)> {
     // Initialize store
     let store = Arc::new(SqliteStore::new(&config.store.database_url).await?);
     let event_log = store.clone();
 
     // Initialize Azure credential based on config auth_mode
-    let credential: Arc<dyn sre_azure::TokenProvider> =
-        match config.azure.auth_mode.as_str() {
-            "mock" => {
-                info!("Using mock token provider (auth_mode=mock)");
-                Arc::new(sre_azure::MockTokenProvider::new("dev-mock-token"))
+    let credential: Arc<dyn sre_azure::TokenProvider> = match config.azure.auth_mode.as_str() {
+        "mock" => {
+            info!("Using mock token provider (auth_mode=mock)");
+            Arc::new(sre_azure::MockTokenProvider::new("dev-mock-token"))
+        }
+        _ => match AzureCredentialProvider::new() {
+            Ok(cred) => Arc::new(cred),
+            Err(e) => {
+                info!("Azure credential not available ({e}), falling back to mock");
+                Arc::new(sre_azure::MockTokenProvider::new("dev-token"))
             }
-            _ => match AzureCredentialProvider::new() {
-                Ok(cred) => Arc::new(cred),
-                Err(e) => {
-                    info!("Azure credential not available ({e}), falling back to mock");
-                    Arc::new(sre_azure::MockTokenProvider::new("dev-token"))
-                }
-            },
-        };
+        },
+    };
 
     let query_client = Arc::new(AzureQueryClient::new(credential.clone()));
 
@@ -158,34 +168,150 @@ async fn bootstrap(
 
     if config.agents.metrics.enabled {
         spawn_agent(
-            MetricsAgent::new(
-                query_client.clone(),
-                config.azure.app_insights_ids.clone(),
-            ),
+            MetricsAgent::new(query_client.clone(), config.azure.app_insights_ids.clone()),
             &mut router,
             &mut join_handles,
         );
     }
 
-    let orchestrator = Orchestrator::new(config.clone(), router, store, event_log);
+    let orchestrator = Orchestrator::new(config.clone(), router, store.clone(), event_log);
 
-    Ok((orchestrator, join_handles))
+    Ok((orchestrator, join_handles, store))
 }
 
-/// Run the webhook server
+/// Run the webhook server with orchestrator loop and health probes.
 async fn run_server(config: PlatformConfig) -> anyhow::Result<()> {
-    let listen_addr = format!("{}:{}", config.webhook.listen_addr, config.webhook.listen_port);
+    let listen_addr = format!(
+        "{}:{}",
+        config.webhook.listen_addr, config.webhook.listen_port
+    );
 
-    let (_orchestrator, _agent_handles) = bootstrap(&config).await?;
+    let (orchestrator, _agent_handles, store) = bootstrap(&config).await?;
 
-    info!(listen_addr = %listen_addr, "Starting webhook server");
+    // Shared state for probes and webhook handlers
+    let heartbeat = Arc::new(AtomicU64::new(webhook::now_epoch_ms()));
+    let investigations = Arc::new(Semaphore::new(
+        config.orchestrator.max_concurrent_investigations as usize,
+    ));
+    let started = Arc::new(AtomicBool::new(false));
 
-    // TODO: Wire up axum server with webhook::handle_azure_alert
-    // For now, just keep the process alive
+    // Alert channel: webhook handler sends, orchestrator loop receives
+    let (alert_tx, mut alert_rx) = mpsc::channel::<AlertInfo>(config.webhook.channel_capacity);
+
+    let app_state = AppState {
+        alert_tx,
+        store,
+        heartbeat: heartbeat.clone(),
+        investigations: investigations.clone(),
+        started: started.clone(),
+        config: config.clone(),
+    };
+
+    let app = Router::new()
+        .route("/startupz", get(webhook::startupz))
+        .route("/healthz", get(webhook::healthz))
+        .route("/readyz", get(webhook::readyz))
+        .route("/api/v1/alerts/azure", post(webhook::handle_azure_alert))
+        .layer(DefaultBodyLimit::max(64 * 1024)) // 64 KB — Azure alert payloads are typically 2-5 KB
+        .with_state(app_state);
+
+    // Arc-wrap the orchestrator so investigations can run concurrently.
+    // investigate() takes &self, so multiple tasks can share the Arc safely.
+    let orchestrator = Arc::new(orchestrator);
+
+    // Heartbeat tick — independent of investigations so liveness probe
+    // stays healthy even during long-running Azure API calls.
+    let hb = heartbeat.clone();
+    tokio::spawn(async move {
+        loop {
+            hb.store(webhook::now_epoch_ms(), Ordering::Relaxed);
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+    });
+
+    // Orchestrator dispatch loop — spawns each investigation as a separate
+    // task, gated by a semaphore for concurrency control.
+    let orch_semaphore = investigations.clone();
+    let max_concurrent = config.orchestrator.max_concurrent_investigations;
+    tokio::spawn(async move {
+        info!("Orchestrator loop started (max_concurrent={max_concurrent})");
+        while let Some(alert_info) = alert_rx.recv().await {
+            let alert_id = alert_info.alert_id.clone();
+
+            // Acquire semaphore permit before spawning investigation
+            let permit = match orch_semaphore.clone().acquire_owned().await {
+                Ok(p) => p,
+                Err(_) => {
+                    error!("Investigation semaphore closed");
+                    break;
+                }
+            };
+
+            info!(
+                alert_id = %alert_id,
+                active = max_concurrent as usize - orch_semaphore.available_permits(),
+                "Dispatching investigation"
+            );
+
+            let orch = orchestrator.clone();
+            tokio::spawn(async move {
+                match orch.investigate(alert_info).await {
+                    Ok(report) => {
+                        info!(
+                            alert_id = %alert_id,
+                            findings = report.findings.len(),
+                            confidence = report.overall_confidence,
+                            duration_ms = report.duration_ms,
+                            "Investigation complete"
+                        );
+                    }
+                    Err(e) => {
+                        error!(alert_id = %alert_id, error = %e, "Investigation failed");
+                    }
+                }
+                drop(permit);
+            });
+        }
+        info!("Alert channel closed — orchestrator loop exiting");
+    });
+
+    // Mark startup complete — probes will now report healthy
+    started.store(true, Ordering::Relaxed);
+
+    let listener = tokio::net::TcpListener::bind(&listen_addr).await?;
+    info!(listen_addr = %listen_addr, "Webhook server listening");
     info!("SRE Agent Platform running. Press Ctrl+C to stop.");
-    tokio::signal::ctrl_c().await?;
 
-    info!("Shutting down...");
+    // Serve with graceful shutdown on Ctrl+C.
+    // When axum shuts down, it drops all AppState clones, which drops
+    // every alert_tx clone. This closes the channel and the dispatch
+    // loop exits naturally (recv returns None).
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async {
+            tokio::signal::ctrl_c().await.ok();
+            info!("Shutting down — stopping new requests...");
+        })
+        .await?;
+
+    // Drain in-flight investigations: wait until all semaphore permits
+    // are returned (i.e., all spawned investigations have completed).
+    // ACA sends SIGTERM and waits 30s — use 25s deadline to leave margin.
+    let drain_max = config.orchestrator.max_concurrent_investigations;
+    info!(
+        max_concurrent = drain_max,
+        "Draining in-flight investigations..."
+    );
+    match tokio::time::timeout(
+        Duration::from_secs(25),
+        investigations.acquire_many(drain_max),
+    )
+    .await
+    {
+        Ok(Ok(_permits)) => info!("All investigations drained cleanly"),
+        Ok(Err(_)) => info!("Investigation semaphore closed during drain"),
+        Err(_) => warn!("Drain deadline exceeded — some investigations may be lost"),
+    }
+
     Ok(())
 }
 
@@ -196,7 +322,7 @@ async fn run_investigation(
     severity: String,
     signal_type: String,
 ) -> anyhow::Result<()> {
-    let (mut orchestrator, _agent_handles) = bootstrap(&config).await?;
+    let (orchestrator, _agent_handles, _store) = bootstrap(&config).await?;
 
     let severity = match severity.as_str() {
         "Sev0" => AlertSeverity::Sev0,
