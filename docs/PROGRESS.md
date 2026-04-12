@@ -50,13 +50,13 @@
 
 ### Test Coverage
 
-- **63 tests** across all crates (up from 48)
+- **65 tests** across all crates
 - Store layer: 12 tests (CRUD, state transitions, event log)
 - Agent layer: 11 tests (triage, logs, metrics, capabilities)
 - Azure layer: 16 tests (query client via wiremock, alert parsing, KQL templates)
 - Orchestrator: 9 tests (full investigation flow, state persistence, aggregation)
 - Common layer: 10 tests (serialization roundtrips for all message/payload types)
-- Webhook/E2E: 5 tests (health probes, alert ingestion, end-to-end investigation)
+- Webhook/E2E: 7 tests (health probes, alert ingestion, self-exclusion, end-to-end investigation)
 
 ### Exit Criteria
 
@@ -116,6 +116,10 @@
 - [ ] gRPC API allows external systems to trigger and query investigations
 - [ ] Platform survives agent crashes gracefully
 - [ ] Load tested: 50 concurrent investigations without degradation
+
+### Planned ADRs
+
+- **ADR-008: Webhook Authentication** — Secure the `/api/v1/alerts/azure` endpoint. Options: shared secret in custom header (`X-Webhook-Secret`), Azure AD bearer token validation, or both. Phase 1 runs behind ACA ingress with no public auth; Phase 2 must add authentication before exposing to external action groups.
 
 ### Key Decisions (Planned)
 
@@ -180,3 +184,4 @@
 | KQL query cost on large workspaces | Medium | Timespan limits, row caps, parameterized templates |
 | Agent platform down during incident | Critical | 99.9% availability SLO, graceful degradation, circuit breaking |
 | Token/credential management | High | Managed Identity in Azure, config-driven auth mode (mock for dev) |
+| Unauthenticated webhook endpoint | Medium | Phase 1: ACA ingress only. Phase 2: ADR-008 (shared secret / Azure AD) |

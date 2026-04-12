@@ -2,11 +2,12 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::extract::DefaultBodyLimit;
 use axum::routing::{get, post};
 use axum::Router;
 use clap::{Parser, Subcommand};
 use tokio::sync::{mpsc, Semaphore};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber::{fmt, EnvFilter};
 
 use sre_agents::{AgentHandle, LogsAgent, MetricsAgent, SreAgent, TriageAgent};
@@ -211,6 +212,7 @@ async fn run_server(config: PlatformConfig) -> anyhow::Result<()> {
         .route("/healthz", get(webhook::healthz))
         .route("/readyz", get(webhook::readyz))
         .route("/api/v1/alerts/azure", post(webhook::handle_azure_alert))
+        .layer(DefaultBodyLimit::max(64 * 1024)) // 64 KB — Azure alert payloads are typically 2-5 KB
         .with_state(app_state);
 
     // Arc-wrap the orchestrator so investigations can run concurrently.
@@ -280,13 +282,35 @@ async fn run_server(config: PlatformConfig) -> anyhow::Result<()> {
     info!(listen_addr = %listen_addr, "Webhook server listening");
     info!("SRE Agent Platform running. Press Ctrl+C to stop.");
 
-    // Serve with graceful shutdown on Ctrl+C
+    // Serve with graceful shutdown on Ctrl+C.
+    // When axum shuts down, it drops all AppState clones, which drops
+    // every alert_tx clone. This closes the channel and the dispatch
+    // loop exits naturally (recv returns None).
     axum::serve(listener, app)
         .with_graceful_shutdown(async {
             tokio::signal::ctrl_c().await.ok();
-            info!("Shutting down...");
+            info!("Shutting down — stopping new requests...");
         })
         .await?;
+
+    // Drain in-flight investigations: wait until all semaphore permits
+    // are returned (i.e., all spawned investigations have completed).
+    // ACA sends SIGTERM and waits 30s — use 25s deadline to leave margin.
+    let drain_max = config.orchestrator.max_concurrent_investigations;
+    info!(
+        max_concurrent = drain_max,
+        "Draining in-flight investigations..."
+    );
+    match tokio::time::timeout(
+        Duration::from_secs(25),
+        investigations.acquire_many(drain_max),
+    )
+    .await
+    {
+        Ok(Ok(_permits)) => info!("All investigations drained cleanly"),
+        Ok(Err(_)) => info!("Investigation semaphore closed during drain"),
+        Err(_) => warn!("Drain deadline exceeded — some investigations may be lost"),
+    }
 
     Ok(())
 }
