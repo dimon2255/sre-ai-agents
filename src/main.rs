@@ -116,10 +116,14 @@ fn spawn_agent(
     }));
 }
 
-/// Bootstrap all agents and return the orchestrator + agent join handles
+/// Bootstrap all agents and return the orchestrator, agent join handles, and shared store
 async fn bootstrap(
     config: &PlatformConfig,
-) -> anyhow::Result<(Orchestrator, Vec<tokio::task::JoinHandle<()>>)> {
+) -> anyhow::Result<(
+    Orchestrator,
+    Vec<tokio::task::JoinHandle<()>>,
+    Arc<SqliteStore>,
+)> {
     // Initialize store
     let store = Arc::new(SqliteStore::new(&config.store.database_url).await?);
     let event_log = store.clone();
@@ -169,9 +173,9 @@ async fn bootstrap(
         );
     }
 
-    let orchestrator = Orchestrator::new(config.clone(), router, store, event_log);
+    let orchestrator = Orchestrator::new(config.clone(), router, store.clone(), event_log);
 
-    Ok((orchestrator, join_handles))
+    Ok((orchestrator, join_handles, store))
 }
 
 /// Run the webhook server with orchestrator loop and health probes.
@@ -181,7 +185,7 @@ async fn run_server(config: PlatformConfig) -> anyhow::Result<()> {
         config.webhook.listen_addr, config.webhook.listen_port
     );
 
-    let (mut orchestrator, _agent_handles) = bootstrap(&config).await?;
+    let (orchestrator, _agent_handles, store) = bootstrap(&config).await?;
 
     // Shared state for probes and webhook handlers
     let heartbeat = Arc::new(AtomicU64::new(webhook::now_epoch_ms()));
@@ -192,8 +196,6 @@ async fn run_server(config: PlatformConfig) -> anyhow::Result<()> {
 
     // Alert channel: webhook handler sends, orchestrator loop receives
     let (alert_tx, mut alert_rx) = mpsc::channel::<AlertInfo>(config.webhook.channel_capacity);
-
-    let store = Arc::new(SqliteStore::new(&config.store.database_url).await?);
 
     let app_state = AppState {
         alert_tx,
@@ -211,65 +213,64 @@ async fn run_server(config: PlatformConfig) -> anyhow::Result<()> {
         .route("/api/v1/alerts/azure", post(webhook::handle_azure_alert))
         .with_state(app_state);
 
-    // Spawn the orchestrator loop as a background task
-    let orch_heartbeat = heartbeat.clone();
+    // Arc-wrap the orchestrator so investigations can run concurrently.
+    // investigate() takes &self, so multiple tasks can share the Arc safely.
+    let orchestrator = Arc::new(orchestrator);
+
+    // Heartbeat tick — independent of investigations so liveness probe
+    // stays healthy even during long-running Azure API calls.
+    let hb = heartbeat.clone();
+    tokio::spawn(async move {
+        loop {
+            hb.store(webhook::now_epoch_ms(), Ordering::Relaxed);
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+    });
+
+    // Orchestrator dispatch loop — spawns each investigation as a separate
+    // task, gated by a semaphore for concurrency control.
     let orch_semaphore = investigations.clone();
     let max_concurrent = config.orchestrator.max_concurrent_investigations;
     tokio::spawn(async move {
         info!("Orchestrator loop started (max_concurrent={max_concurrent})");
-        loop {
-            // Update heartbeat at the top of every iteration
-            orch_heartbeat.store(webhook::now_epoch_ms(), Ordering::Relaxed);
+        while let Some(alert_info) = alert_rx.recv().await {
+            let alert_id = alert_info.alert_id.clone();
 
-            tokio::select! {
-                alert = alert_rx.recv() => {
-                    match alert {
-                        Some(alert_info) => {
-                            let alert_id = alert_info.alert_id.clone();
+            // Acquire semaphore permit before spawning investigation
+            let permit = match orch_semaphore.clone().acquire_owned().await {
+                Ok(p) => p,
+                Err(_) => {
+                    error!("Investigation semaphore closed");
+                    break;
+                }
+            };
 
-                            // Acquire semaphore permit before investigating
-                            let permit = match orch_semaphore.clone().acquire_owned().await {
-                                Ok(p) => p,
-                                Err(_) => {
-                                    error!("Investigation semaphore closed");
-                                    break;
-                                }
-                            };
+            info!(
+                alert_id = %alert_id,
+                active = max_concurrent as usize - orch_semaphore.available_permits(),
+                "Dispatching investigation"
+            );
 
-                            info!(
-                                alert_id = %alert_id,
-                                active = max_concurrent as usize - orch_semaphore.available_permits(),
-                                "Dispatching investigation"
-                            );
-
-                            match orchestrator.investigate(alert_info).await {
-                                Ok(report) => {
-                                    info!(
-                                        alert_id = %alert_id,
-                                        findings = report.findings.len(),
-                                        confidence = report.overall_confidence,
-                                        duration_ms = report.duration_ms,
-                                        "Investigation complete"
-                                    );
-                                }
-                                Err(e) => {
-                                    error!(alert_id = %alert_id, error = %e, "Investigation failed");
-                                }
-                            }
-
-                            drop(permit);
-                        }
-                        None => {
-                            info!("Alert channel closed — orchestrator loop exiting");
-                            break;
-                        }
+            let orch = orchestrator.clone();
+            tokio::spawn(async move {
+                match orch.investigate(alert_info).await {
+                    Ok(report) => {
+                        info!(
+                            alert_id = %alert_id,
+                            findings = report.findings.len(),
+                            confidence = report.overall_confidence,
+                            duration_ms = report.duration_ms,
+                            "Investigation complete"
+                        );
+                    }
+                    Err(e) => {
+                        error!(alert_id = %alert_id, error = %e, "Investigation failed");
                     }
                 }
-                // Heartbeat tick — keeps the heartbeat fresh when idle,
-                // preventing false liveness probe failures.
-                _ = tokio::time::sleep(Duration::from_secs(5)) => {}
-            }
+                drop(permit);
+            });
         }
+        info!("Alert channel closed — orchestrator loop exiting");
     });
 
     // Mark startup complete — probes will now report healthy
@@ -297,7 +298,7 @@ async fn run_investigation(
     severity: String,
     signal_type: String,
 ) -> anyhow::Result<()> {
-    let (mut orchestrator, _agent_handles) = bootstrap(&config).await?;
+    let (orchestrator, _agent_handles, _store) = bootstrap(&config).await?;
 
     let severity = match severity.as_str() {
         "Sev0" => AlertSeverity::Sev0,

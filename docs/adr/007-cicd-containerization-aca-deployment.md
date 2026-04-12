@@ -27,7 +27,7 @@ Three independent workflows running on push and PR to main:
 ### 2. Multi-Stage Dockerfile
 
 Two-stage build:
-- **Builder**: `rust:1.75-bookworm` — full toolchain, compiles release binary.
+- **Builder**: `rust:1.86-bookworm` — full toolchain, compiles release binary.
 - **Runtime**: `debian:bookworm-slim` — minimal image (~80-100MB) with only `ca-certificates` for outbound TLS to Azure APIs. Non-root user (`sre`). No inbound TLS configuration.
 
 Release profile optimizations: `lto = "thin"`, `strip = true`, `codegen-units = 1` for smaller binary (~10-15MB vs ~30MB default).

@@ -62,7 +62,7 @@ impl Orchestrator {
     /// 5. Aggregate findings and generate report
     #[instrument(skip(self), fields(alert_id = %alert.alert_id, resource = %alert.affected_resource))]
     pub async fn investigate(
-        &mut self,
+        &self,
         alert: AlertInfo,
     ) -> Result<InvestigationReport, OrchestratorError> {
         let mut workflow = InvestigationWorkflow::new(&alert);

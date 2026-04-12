@@ -83,7 +83,7 @@ fn make_alert(resource: &str, severity: AlertSeverity) -> AlertInfo {
 
 #[tokio::test]
 async fn test_full_investigation_flow() {
-    let (mut orchestrator, _handles, _dir) = setup().await;
+    let (orchestrator, _handles, _dir) = setup().await;
 
     let alert = make_alert("payments-api", AlertSeverity::Sev1);
     let report = orchestrator.investigate(alert).await.unwrap();
@@ -107,7 +107,7 @@ async fn test_full_investigation_flow() {
 
 #[tokio::test]
 async fn test_investigation_sev0_critical() {
-    let (mut orchestrator, _handles, _dir) = setup().await;
+    let (orchestrator, _handles, _dir) = setup().await;
 
     let alert = make_alert("critical-service", AlertSeverity::Sev0);
     let report = orchestrator.investigate(alert).await.unwrap();
@@ -118,7 +118,7 @@ async fn test_investigation_sev0_critical() {
 
 #[tokio::test]
 async fn test_investigation_includes_all_agents() {
-    let (mut orchestrator, _handles, _dir) = setup().await;
+    let (orchestrator, _handles, _dir) = setup().await;
 
     let alert = make_alert("web-app", AlertSeverity::Sev2);
     let report = orchestrator.investigate(alert).await.unwrap();
@@ -134,7 +134,7 @@ async fn test_investigation_includes_all_agents() {
 
 #[tokio::test]
 async fn test_investigation_report_is_valid_json() {
-    let (mut orchestrator, _handles, _dir) = setup().await;
+    let (orchestrator, _handles, _dir) = setup().await;
 
     let alert = make_alert("api-gateway", AlertSeverity::Sev1);
     let report = orchestrator.investigate(alert).await.unwrap();
@@ -196,7 +196,7 @@ async fn test_workflow_state_persisted() {
     });
     tokio::spawn(async move { agent.run(rx).await.unwrap() });
 
-    let mut orchestrator = Orchestrator::new(config, router, store.clone(), event_log);
+    let orchestrator = Orchestrator::new(config, router, store.clone(), event_log);
 
     let alert = make_alert("test-service", AlertSeverity::Sev2);
     let report = orchestrator.investigate(alert).await.unwrap();

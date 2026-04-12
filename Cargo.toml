@@ -14,6 +14,10 @@ name = "sre-agents-platform"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "sre_agents_platform"
+path = "src/lib.rs"
+
 [[bin]]
 name = "sre-agents"
 path = "src/main.rs"

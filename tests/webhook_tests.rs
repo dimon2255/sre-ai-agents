@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use axum::routing::{get, post};
 use axum::Router;
+use tempfile::TempDir;
 use tokio::sync::{mpsc, Semaphore};
 
 use sre_agents::traits::SreAgent;
@@ -14,78 +15,9 @@ use sre_common::messages::*;
 use sre_orchestrator::{AgentRouter, Orchestrator};
 use sre_store::SqliteStore;
 
-/// Mirrors src/webhook.rs AppState
-#[derive(Clone)]
-#[allow(dead_code)]
-struct TestAppState {
-    alert_tx: mpsc::Sender<AlertInfo>,
-    store: Arc<SqliteStore>,
-    heartbeat: Arc<AtomicU64>,
-    investigations: Arc<Semaphore>,
-    started: Arc<AtomicBool>,
-    config: PlatformConfig,
-}
-
-fn now_epoch_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
-
-async fn startupz(
-    axum::extract::State(state): axum::extract::State<TestAppState>,
-) -> axum::http::StatusCode {
-    if state.started.load(Ordering::Relaxed) {
-        axum::http::StatusCode::OK
-    } else {
-        axum::http::StatusCode::SERVICE_UNAVAILABLE
-    }
-}
-
-async fn healthz(
-    axum::extract::State(state): axum::extract::State<TestAppState>,
-) -> axum::http::StatusCode {
-    let last = state.heartbeat.load(Ordering::Relaxed);
-    let now = now_epoch_ms();
-    if now.saturating_sub(last) < 30_000 {
-        axum::http::StatusCode::OK
-    } else {
-        axum::http::StatusCode::SERVICE_UNAVAILABLE
-    }
-}
-
-async fn readyz(
-    axum::extract::State(state): axum::extract::State<TestAppState>,
-) -> axum::http::StatusCode {
-    match state.store.ping().await {
-        Ok(()) => axum::http::StatusCode::OK,
-        Err(_) => axum::http::StatusCode::SERVICE_UNAVAILABLE,
-    }
-}
-
-async fn handle_alert(
-    axum::extract::State(state): axum::extract::State<TestAppState>,
-    axum::Json(payload): axum::Json<sre_azure::models::AzureCommonAlert>,
-) -> Result<axum::http::StatusCode, axum::http::StatusCode> {
-    let alert_info = sre_azure::alerts_client::AzureAlertsClient::parse_common_alert(&payload)
-        .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
-
-    // Self-exclusion filter
-    if let Some(ref self_id) = state.config.webhook.self_resource_id {
-        if alert_info.affected_resource == *self_id {
-            return Ok(axum::http::StatusCode::OK);
-        }
-    }
-
-    match state.alert_tx.try_send(alert_info) {
-        Ok(()) => Ok(axum::http::StatusCode::ACCEPTED),
-        Err(mpsc::error::TrySendError::Full(_)) => Err(axum::http::StatusCode::SERVICE_UNAVAILABLE),
-        Err(mpsc::error::TrySendError::Closed(_)) => {
-            Err(axum::http::StatusCode::SERVICE_UNAVAILABLE)
-        }
-    }
-}
+// Import production types and handlers directly — tests should exercise
+// the real code paths, not re-implementations.
+use sre_agents_platform::webhook::{self, AppState};
 
 fn sample_alert_payload() -> serde_json::Value {
     serde_json::json!({
@@ -117,11 +49,13 @@ fn sample_alert_payload() -> serde_json::Value {
     })
 }
 
-async fn setup_test_server() -> (String, Arc<SqliteStore>) {
+async fn setup_test_server() -> (String, Arc<SqliteStore>, TempDir) {
     setup_test_server_with_config(PlatformConfig::default()).await
 }
 
-async fn setup_test_server_with_config(config: PlatformConfig) -> (String, Arc<SqliteStore>) {
+async fn setup_test_server_with_config(
+    config: PlatformConfig,
+) -> (String, Arc<SqliteStore>, TempDir) {
     let dir = tempfile::TempDir::new().unwrap();
     let db_path = dir.path().join("test.db");
     let url = format!("sqlite://{}", db_path.display());
@@ -166,18 +100,23 @@ async fn setup_test_server_with_config(config: PlatformConfig) -> (String, Arc<S
     });
     tokio::spawn(async move { agent.run(rx).await.unwrap() });
 
-    let mut orchestrator = Orchestrator::new(config.clone(), router, store.clone(), event_log);
+    let orchestrator = Arc::new(Orchestrator::new(
+        config.clone(),
+        router,
+        store.clone(),
+        event_log,
+    ));
 
     // Channel for webhook → orchestrator
     let (alert_tx, mut alert_rx) = mpsc::channel::<AlertInfo>(config.webhook.channel_capacity);
 
-    let heartbeat = Arc::new(AtomicU64::new(now_epoch_ms()));
+    let heartbeat = Arc::new(AtomicU64::new(webhook::now_epoch_ms()));
     let investigations = Arc::new(Semaphore::new(
         config.orchestrator.max_concurrent_investigations as usize,
     ));
     let started = Arc::new(AtomicBool::new(true));
 
-    let app_state = TestAppState {
+    let app_state = AppState {
         alert_tx,
         store: store.clone(),
         heartbeat: heartbeat.clone(),
@@ -186,31 +125,34 @@ async fn setup_test_server_with_config(config: PlatformConfig) -> (String, Arc<S
         config,
     };
 
+    // Use production handlers
     let app = Router::new()
-        .route("/startupz", get(startupz))
-        .route("/healthz", get(healthz))
-        .route("/readyz", get(readyz))
-        .route("/api/v1/alerts/azure", post(handle_alert))
+        .route("/startupz", get(webhook::startupz))
+        .route("/healthz", get(webhook::healthz))
+        .route("/readyz", get(webhook::readyz))
+        .route("/api/v1/alerts/azure", post(webhook::handle_azure_alert))
         .with_state(app_state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let base_url = format!("http://{addr}");
 
-    // Spawn orchestrator loop with heartbeat
-    let orch_heartbeat = heartbeat.clone();
+    // Independent heartbeat tick (matches production behavior)
+    let hb = heartbeat.clone();
     tokio::spawn(async move {
         loop {
-            orch_heartbeat.store(now_epoch_ms(), Ordering::Relaxed);
-            tokio::select! {
-                alert = alert_rx.recv() => {
-                    match alert {
-                        Some(alert_info) => { let _ = orchestrator.investigate(alert_info).await; }
-                        None => break,
-                    }
-                }
-                _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
-            }
+            hb.store(webhook::now_epoch_ms(), Ordering::Relaxed);
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        }
+    });
+
+    // Spawn orchestrator dispatch loop
+    tokio::spawn(async move {
+        while let Some(alert_info) = alert_rx.recv().await {
+            let orch = orchestrator.clone();
+            tokio::spawn(async move {
+                let _ = orch.investigate(alert_info).await;
+            });
         }
     });
 
@@ -218,17 +160,14 @@ async fn setup_test_server_with_config(config: PlatformConfig) -> (String, Arc<S
         axum::serve(listener, app).await.unwrap();
     });
 
-    // Keep tempdir alive
-    std::mem::forget(dir);
-
-    (base_url, store)
+    (base_url, store, dir)
 }
 
 // ─── Health Probe Tests ───
 
 #[tokio::test]
 async fn test_healthz_returns_200() {
-    let (base_url, _store) = setup_test_server().await;
+    let (base_url, _store, _dir) = setup_test_server().await;
 
     let resp = reqwest::get(format!("{base_url}/healthz")).await.unwrap();
     assert_eq!(resp.status(), 200);
@@ -236,7 +175,7 @@ async fn test_healthz_returns_200() {
 
 #[tokio::test]
 async fn test_readyz_returns_200_when_db_healthy() {
-    let (base_url, _store) = setup_test_server().await;
+    let (base_url, _store, _dir) = setup_test_server().await;
 
     let resp = reqwest::get(format!("{base_url}/readyz")).await.unwrap();
     assert_eq!(resp.status(), 200);
@@ -244,7 +183,7 @@ async fn test_readyz_returns_200_when_db_healthy() {
 
 #[tokio::test]
 async fn test_startupz_returns_200() {
-    let (base_url, _store) = setup_test_server().await;
+    let (base_url, _store, _dir) = setup_test_server().await;
 
     let resp = reqwest::get(format!("{base_url}/startupz")).await.unwrap();
     assert_eq!(resp.status(), 200);
@@ -254,7 +193,7 @@ async fn test_startupz_returns_200() {
 
 #[tokio::test]
 async fn test_webhook_accepts_valid_alert() {
-    let (base_url, _store) = setup_test_server().await;
+    let (base_url, _store, _dir) = setup_test_server().await;
 
     let client = reqwest::Client::new();
     let resp = client
@@ -269,7 +208,7 @@ async fn test_webhook_accepts_valid_alert() {
 
 #[tokio::test]
 async fn test_webhook_rejects_invalid_payload() {
-    let (base_url, _store) = setup_test_server().await;
+    let (base_url, _store, _dir) = setup_test_server().await;
 
     let client = reqwest::Client::new();
     let resp = client
@@ -290,7 +229,7 @@ async fn test_self_exclusion_filter() {
             .to_string(),
     );
 
-    let (base_url, _store) = setup_test_server_with_config(config).await;
+    let (base_url, _store, _dir) = setup_test_server_with_config(config).await;
 
     let client = reqwest::Client::new();
     let resp = client
@@ -310,7 +249,7 @@ async fn test_self_exclusion_filter() {
 async fn test_webhook_e2e_alert_to_investigation() {
     use sre_store::WorkflowStore;
 
-    let (base_url, store) = setup_test_server().await;
+    let (base_url, store, _dir) = setup_test_server().await;
 
     let client = reqwest::Client::new();
     let resp = client
