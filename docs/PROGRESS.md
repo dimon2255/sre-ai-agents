@@ -10,35 +10,40 @@
 
 ## Phase 1 — Azure MVP: Read-Only Investigation
 
-**Status**: Complete
-**Duration**: 6-8 weeks
+**Status**: Complete (2026-04-11)
+**Duration**: 2026-04-05 to 2026-04-11
 **Goal**: Prove the orchestrator + agent pattern works against real Azure data
 
 ### Scope
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Project skeleton (Cargo workspace) | Done | Workspace with 5 crates |
-| Orchestrator (workflow state machine, routing, fan-out) | Done | `crates/orchestrator/` — per-investigation channels (ADR-006) |
+| Project skeleton (Cargo workspace) | Done | Workspace with 5 crates + root lib/bin |
+| Orchestrator (workflow state machine, routing, fan-out) | Done | `crates/orchestrator/` — per-investigation channels (ADR-006), concurrent investigations via Arc + semaphore |
 | TriageAgent (alert parsing, severity classification) | Done | `crates/agents/src/triage.rs` |
 | LogsAgent (KQL against Log Analytics) | Done | `crates/agents/src/logs.rs` |
 | MetricsAgent (KQL against App Insights) | Done | `crates/agents/src/metrics.rs` |
 | AzureQueryClient (shared KQL executor) | Done | `crates/azure/src/query_client.rs` — base URL injection for testing |
 | AzureAlertsClient (alert ingestion) | Done | `crates/azure/src/alerts_client.rs` |
 | KQL Templates (parameterized queries) | Done | `crates/azure/src/kql_templates.rs` |
-| Common Alert Schema webhook handler | Done | `src/webhook.rs` — Axum server with health probes + orchestrator channel |
+| Common Alert Schema webhook handler | Done | `src/webhook.rs` — Axum server with 3-tier health probes + orchestrator channel |
 | CLI interface (manual investigation trigger) | Done | `src/main.rs` |
 | SQLite state store | Done | `crates/store/` — auto-creates DB, full audit trail |
 | Config-driven auth mode | Done | `azure.auth_mode = "mock" \| "azure"` in config |
-| OpenTelemetry instrumentation | Not Started | Deferred to Phase 2 |
-| CI/CD pipeline (GitHub Actions) | Done | `.github/workflows/` — lint, test, build, security, docker |
-| Multi-stage Dockerfile | Done | `Dockerfile` — builder + debian-slim runtime, ~80-100MB |
-| Health probes (/healthz, /readyz) | Done | Liveness + readiness (SQLite connectivity check) |
+| OpenTelemetry instrumentation | Deferred | Moved to Phase 2 |
+| CI/CD pipeline (GitHub Actions) | Done | `.github/workflows/` — lint, test, build, security audit, docker smoke |
+| Multi-stage Dockerfile | Done | `Dockerfile` — rust:1.86 builder + debian-slim runtime, non-root user |
+| Health probes (/startupz, /healthz, /readyz) | Done | 3-tier: startup gate, heartbeat liveness (no I/O), readiness (channel + semaphore + heartbeat + SQLite) |
 | Release profile optimization | Done | LTO, strip, codegen-units=1 in Cargo.toml |
-| Serialization roundtrip tests | Done | All AgentPayload variants validated, InboundMessage boundary documented |
+| Serialization roundtrip tests | Done | All AgentPayload variants validated, InboundMessage boundary documented for Phase 2 NATS |
 | ADR-007: CI/CD + ACA deployment | Done | `docs/adr/007-cicd-containerization-aca-deployment.md` |
+| Request body size limit | Done | 64KB DefaultBodyLimit on all routes |
+| Graceful shutdown drain | Done | Semaphore-based drain with 25s deadline (ACA SIGTERM margin) |
+| Concurrent investigation support | Done | Arc-wrapped orchestrator, spawned tasks, independent heartbeat tick |
 
-### Code Review Fixes (2026-04-06)
+### Code Review Fixes
+
+**Round 1 (2026-04-06)**
 
 | Issue | Severity | Status | Fix |
 |-------|----------|--------|-----|
@@ -48,9 +53,21 @@
 | Duration cast i64→u64 without bounds | Suggestion | Fixed | `.max(0)` guard in `workflow.rs` |
 | Agent bootstrap code repetition | Suggestion | Fixed | `spawn_agent()` helper in `main.rs` |
 
+**Round 2 (2026-04-11)**
+
+| Issue | Severity | Status | Fix |
+|-------|----------|--------|-----|
+| Heartbeat starvation + serial investigations | Blocker | Fixed | Decoupled heartbeat tick, Arc-wrapped orchestrator, concurrent task spawning |
+| Tests re-implement production code | Suggestion | Fixed | Extracted `src/lib.rs`, tests import production `AppState` + handlers |
+| Duplicate SqliteStore in run_server | Suggestion | Fixed | `bootstrap()` returns shared store; single connection pool |
+| Temp dir leak in tests (std::mem::forget) | Suggestion | Fixed | Return `TempDir` in test setup tuple |
+| Stale Rust version in ADR-007 | Nit | Fixed | Updated 1.75 → 1.86 |
+| No request body size limit | Suggestion | Fixed | 64KB `DefaultBodyLimit` layer |
+| No graceful investigation drain | Suggestion | Fixed | Semaphore acquire_many with 25s timeout on shutdown |
+
 ### Test Coverage
 
-- **65 tests** across all crates
+- **65 tests** across all crates (zero failures, zero clippy warnings)
 - Store layer: 12 tests (CRUD, state transitions, event log)
 - Agent layer: 11 tests (triage, logs, metrics, capabilities)
 - Azure layer: 16 tests (query client via wiremock, alert parsing, KQL templates)
@@ -69,6 +86,9 @@
 - [x] Structured JSON findings report generated per investigation
 - [x] Agent timeout + circuit breaking works
 - [x] CI pipeline builds and tests pass
+- [x] Concurrent investigations with semaphore-based concurrency control
+- [x] Graceful shutdown drains in-flight investigations
+- [x] Integration tests exercise production code paths (not mirrors)
 
 ### Key Decisions
 
@@ -79,6 +99,9 @@
 - SQLite for zero-ops persistence
 - Config-driven auth mode (`mock` for dev, `azure` for production)
 - No LLM reasoning (rule-based triage, template-driven analysis)
+- Arc-wrapped orchestrator with `investigate(&self)` enables concurrent spawning
+- Independent heartbeat tick prevents liveness probe starvation during long investigations
+- Webhook auth deferred to Phase 2 (ADR-008) — Phase 1 relies on ACA ingress isolation
 
 ---
 
