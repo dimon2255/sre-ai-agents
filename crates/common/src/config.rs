@@ -8,6 +8,8 @@ pub struct PlatformConfig {
     pub agents: AgentsConfig,
     pub webhook: WebhookConfig,
     pub store: StoreConfig,
+    #[serde(default)]
+    pub observability: ObservabilityConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -92,6 +94,34 @@ pub struct StoreConfig {
     pub database_url: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct ObservabilityConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_otlp_endpoint")]
+    pub otlp_endpoint: String,
+    #[serde(default = "default_service_name")]
+    pub service_name: String,
+}
+
+fn default_otlp_endpoint() -> String {
+    "http://localhost:4318".to_string()
+}
+
+fn default_service_name() -> String {
+    "sre-agents-platform".to_string()
+}
+
+impl Default for ObservabilityConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            otlp_endpoint: default_otlp_endpoint(),
+            service_name: default_service_name(),
+        }
+    }
+}
+
 impl Default for PlatformConfig {
     fn default() -> Self {
         Self {
@@ -128,6 +158,7 @@ impl Default for PlatformConfig {
             store: StoreConfig {
                 database_url: "sqlite://data/sre-agents.db".to_string(),
             },
+            observability: ObservabilityConfig::default(),
         }
     }
 }

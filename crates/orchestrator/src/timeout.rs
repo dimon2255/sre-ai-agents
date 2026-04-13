@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use tokio::sync::mpsc;
 use tokio::time::timeout;
-use tracing::{info, warn};
+use tracing::{info, instrument, warn};
 
 use sre_common::messages::AgentMessage;
 
@@ -11,6 +11,7 @@ use sre_common::messages::AgentMessage;
 /// If the agent doesn't respond within the timeout, returns None
 /// and logs a warning. The orchestrator can then proceed with
 /// partial results (circuit-breaking pattern).
+#[instrument(skip(receiver), fields(timeout_secs = timeout_duration.as_secs()))]
 pub async fn recv_with_timeout(
     receiver: &mut mpsc::Receiver<AgentMessage>,
     timeout_duration: Duration,
@@ -37,6 +38,7 @@ pub async fn recv_with_timeout(
 ///
 /// Waits for `expected_count` responses or until timeout expires,
 /// whichever comes first. Returns all responses received.
+#[instrument(skip(receiver), fields(expected = expected_count, timeout_secs = timeout_duration.as_secs()))]
 pub async fn collect_with_timeout(
     receiver: &mut mpsc::Receiver<AgentMessage>,
     expected_count: usize,

@@ -47,6 +47,14 @@ pub struct AppState {
 /// runs asynchronously in the orchestrator loop.
 ///
 /// Expected webhook URL: POST /api/v1/alerts/azure
+#[tracing::instrument(
+    name = "handle_azure_alert",
+    skip(state, payload),
+    fields(
+        alert_rule = %payload.data.essentials.alert_rule,
+        severity = %payload.data.essentials.severity,
+    )
+)]
 pub async fn handle_azure_alert(
     State(state): State<AppState>,
     Json(payload): Json<AzureCommonAlert>,

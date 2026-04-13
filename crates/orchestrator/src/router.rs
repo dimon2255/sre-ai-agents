@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use tokio::sync::mpsc;
-use tracing::debug;
+use tracing::{debug, instrument};
 
 use sre_agents::AgentHandle;
 use sre_common::messages::{AgentMessage, AgentType, InboundMessage};
@@ -40,6 +40,7 @@ impl AgentRouter {
     }
 
     /// Route a message to the appropriate agent by type, with a reply channel
+    #[instrument(skip(self, message, reply_tx), fields(agent_type = %agent_type))]
     pub async fn route_to_type(
         &self,
         agent_type: &AgentType,
