@@ -37,3 +37,4 @@ database_url = "sqlite://data/sre-agents.db"
 # enabled = false
 # otlp_endpoint = "http://localhost:4318"
 # service_name = "sre-agents-platform"
+# environment = "staging"

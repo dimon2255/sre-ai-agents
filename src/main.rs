@@ -137,6 +137,7 @@ fn init_tracer_provider(obs_config: &ObservabilityConfig) -> anyhow::Result<SdkT
         .with_attributes([
             KeyValue::new("service.name", obs_config.service_name.clone()),
             KeyValue::new("service.version", env!("CARGO_PKG_VERSION").to_string()),
+            KeyValue::new("deployment.environment", obs_config.environment.clone()),
         ])
         .build();
 
