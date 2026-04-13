@@ -7,7 +7,7 @@ use axum::routing::{get, post};
 use axum::Router;
 use clap::{Parser, Subcommand};
 use opentelemetry::trace::TracerProvider as _;
-use opentelemetry_sdk::trace::TracerProvider;
+use opentelemetry_sdk::trace::SdkTracerProvider;
 use tokio::sync::{mpsc, Semaphore};
 use tracing::{error, info, warn};
 use tracing_subscriber::layer::SubscriberExt;
@@ -73,6 +73,7 @@ async fn main() -> anyhow::Result<()> {
     let fmt_layer = fmt::layer().with_target(true).with_thread_ids(false);
 
     let _tracer_provider = if config.observability.enabled {
+        config.observability.validate_endpoint()?;
         let provider = init_tracer_provider(&config.observability)?;
         let tracer = provider.tracer(config.observability.service_name.clone());
         let otel_layer = tracing_opentelemetry::layer().with_tracer(tracer);
@@ -127,25 +128,27 @@ fn load_config(path: &str) -> anyhow::Result<PlatformConfig> {
 }
 
 /// Initialize an OpenTelemetry tracer provider with OTLP HTTP exporter
-fn init_tracer_provider(obs_config: &ObservabilityConfig) -> anyhow::Result<TracerProvider> {
+fn init_tracer_provider(obs_config: &ObservabilityConfig) -> anyhow::Result<SdkTracerProvider> {
     use opentelemetry::KeyValue;
-    use opentelemetry_otlp::WithExportConfig;
-    use opentelemetry_sdk::runtime::Tokio;
-    use opentelemetry_sdk::trace::Config;
+    use opentelemetry_otlp::{SpanExporter, WithExportConfig};
     use opentelemetry_sdk::Resource;
 
-    let provider = opentelemetry_otlp::new_pipeline()
-        .tracing()
-        .with_exporter(
-            opentelemetry_otlp::new_exporter()
-                .http()
-                .with_endpoint(&obs_config.otlp_endpoint),
-        )
-        .with_trace_config(Config::default().with_resource(Resource::new([
+    let resource = Resource::builder()
+        .with_attributes([
             KeyValue::new("service.name", obs_config.service_name.clone()),
             KeyValue::new("service.version", env!("CARGO_PKG_VERSION").to_string()),
-        ])))
-        .install_batch(Tokio)?;
+        ])
+        .build();
+
+    let http_exporter = SpanExporter::builder()
+        .with_http()
+        .with_endpoint(&obs_config.otlp_endpoint)
+        .build()?;
+
+    let provider = SdkTracerProvider::builder()
+        .with_resource(resource)
+        .with_batch_exporter(http_exporter)
+        .build();
 
     Ok(provider)
 }

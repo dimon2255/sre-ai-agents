@@ -33,7 +33,7 @@ impl MetricsAgent {
     }
 
     /// Run performance analysis for a given resource
-    #[tracing::instrument(skip(self), fields(resource = %params.resource_name, app_insights_count = self.app_insights_ids.len()))]
+    #[tracing::instrument(skip(self), fields(agent.type = "metrics", resource = %params.resource_name, app_insights_count = self.app_insights_ids.len()))]
     async fn analyze_performance(
         &self,
         params: &InvestigationParams,

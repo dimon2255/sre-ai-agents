@@ -112,6 +112,34 @@ fn default_service_name() -> String {
     "sre-agents-platform".to_string()
 }
 
+impl ObservabilityConfig {
+    /// Validate that the OTLP endpoint is a safe, internal destination.
+    /// Prevents accidental exfiltration of span data (resource names, alert
+    /// details, severity levels) to external endpoints.
+    pub fn validate_endpoint(&self) -> anyhow::Result<()> {
+        let url = url::Url::parse(&self.otlp_endpoint).map_err(|e| {
+            anyhow::anyhow!("Invalid OTLP endpoint URL '{}': {e}", self.otlp_endpoint)
+        })?;
+
+        let host = url.host_str().unwrap_or("");
+        let is_safe = host == "localhost"
+            || host == "127.0.0.1"
+            || host == "::1"
+            || host.ends_with(".internal")
+            || host.ends_with(".local")
+            || host.ends_with(".svc.cluster.local");
+
+        if !is_safe {
+            anyhow::bail!(
+                "OTLP endpoint host '{host}' is not a recognised internal address. \
+                 Allowed: localhost, 127.0.0.1, ::1, *.internal, *.local, *.svc.cluster.local"
+            );
+        }
+
+        Ok(())
+    }
+}
+
 impl Default for ObservabilityConfig {
     fn default() -> Self {
         Self {

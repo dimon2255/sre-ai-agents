@@ -53,6 +53,9 @@ pub struct AppState {
     fields(
         alert_rule = %payload.data.essentials.alert_rule,
         severity = %payload.data.essentials.severity,
+        signal_type = %payload.data.essentials.signal_type,
+        affected_resource = tracing::field::Empty,
+        alert_id = tracing::field::Empty,
     )
 )]
 pub async fn handle_azure_alert(
@@ -73,6 +76,13 @@ pub async fn handle_azure_alert(
             return Err(StatusCode::BAD_REQUEST);
         }
     };
+
+    let span = tracing::Span::current();
+    span.record("alert_id", tracing::field::display(&alert_info.alert_id));
+    span.record(
+        "affected_resource",
+        tracing::field::display(&alert_info.affected_resource),
+    );
 
     // Self-exclusion filter: break the OTLP feedback loop (ADR-007).
     // If the alert targets the platform's own resource, acknowledge but don't investigate.

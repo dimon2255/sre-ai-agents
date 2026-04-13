@@ -33,7 +33,7 @@ impl TriageAgent {
     }
 
     /// Classify an alert and produce a triage result
-    #[tracing::instrument(skip(self, context), fields(resource = %context.alert.affected_resource, severity = %context.alert.severity))]
+    #[tracing::instrument(skip(self, context), fields(agent.type = "triage", resource = %context.alert.affected_resource, severity = %context.alert.severity))]
     fn triage_alert(&self, context: &InvestigationContext) -> TriageResult {
         let alert = &context.alert;
 
