@@ -90,10 +90,7 @@ async fn main() -> anyhow::Result<()> {
         );
         Some(provider)
     } else {
-        Registry::default()
-            .with(env_filter)
-            .with(fmt_layer)
-            .init();
+        Registry::default().with(env_filter).with(fmt_layer).init();
         None
     };
 
