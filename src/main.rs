@@ -140,9 +140,14 @@ fn init_tracer_provider(obs_config: &ObservabilityConfig) -> anyhow::Result<SdkT
         ])
         .build();
 
+    let traces_endpoint = format!(
+        "{}/v1/traces",
+        obs_config.otlp_endpoint.trim_end_matches('/')
+    );
+
     let http_exporter = SpanExporter::builder()
         .with_http()
-        .with_endpoint(&obs_config.otlp_endpoint)
+        .with_endpoint(&traces_endpoint)
         .build()?;
 
     let provider = SdkTracerProvider::builder()
