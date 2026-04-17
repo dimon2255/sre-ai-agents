@@ -10,3 +10,5 @@ uuid.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+anyhow.workspace = true
+url.workspace = true

@@ -38,6 +38,7 @@ impl LogsAgent {
     }
 
     /// Run error analysis for a given resource
+    #[tracing::instrument(skip(self), fields(agent.type = "logs", resource = %params.resource_name, workspace_count = self.workspace_ids.len()))]
     async fn analyze_errors(
         &self,
         params: &InvestigationParams,

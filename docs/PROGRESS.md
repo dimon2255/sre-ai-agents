@@ -117,8 +117,8 @@
 
 | # | Component | Status | Notes |
 |---|-----------|--------|-------|
-| 1 | Staging deployment (Terraform + ACA) | In Progress | `infra/staging/`, release workflow, OIDC auth |
-| 2 | OpenTelemetry instrumentation | Not Started | Deferred from Phase 1; instrument before expanding |
+| 1 | Staging deployment (Terraform + ACA) | Done | `infra/staging/`, release workflow, OIDC auth, deployed to `aca-sre-agents-demo` |
+| 2 | OpenTelemetry instrumentation | Done | 15 spans across critical path, OTLP HTTP exporter, config-driven (`SRE__OBSERVABILITY__ENABLED`) |
 | 3 | PostgreSQL migration (replace SQLite) | Not Started | `psql-sre-agents-staging` exists; swap store backend |
 | 4 | TraceAgent (distributed traces) | Not Started | App Insights trace correlation |
 | 5 | InfraAgent (Activity Log, Resource Health) | Not Started | Azure Activity Log + Resource Health API |
@@ -129,7 +129,7 @@
 #### Phase 2a Exit Criteria
 
 - [x] Terraform deploys ACA app to staging via GitHub Actions release workflow
-- [ ] OpenTelemetry traces flow across orchestrator and all agents
+- [x] OpenTelemetry traces flow across orchestrator and all agents
 - [ ] PostgreSQL stores full audit history (replaces SQLite)
 - [ ] TraceAgent correlates distributed traces and identifies dependency failures
 - [ ] InfraAgent detects recent deployments/config changes correlated with incidents

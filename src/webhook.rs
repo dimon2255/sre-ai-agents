@@ -47,6 +47,17 @@ pub struct AppState {
 /// runs asynchronously in the orchestrator loop.
 ///
 /// Expected webhook URL: POST /api/v1/alerts/azure
+#[tracing::instrument(
+    name = "handle_azure_alert",
+    skip(state, payload),
+    fields(
+        alert_rule = %payload.data.essentials.alert_rule,
+        severity = %payload.data.essentials.severity,
+        signal_type = %payload.data.essentials.signal_type,
+        affected_resource = tracing::field::Empty,
+        alert_id = tracing::field::Empty,
+    )
+)]
 pub async fn handle_azure_alert(
     State(state): State<AppState>,
     Json(payload): Json<AzureCommonAlert>,
@@ -65,6 +76,13 @@ pub async fn handle_azure_alert(
             return Err(StatusCode::BAD_REQUEST);
         }
     };
+
+    let span = tracing::Span::current();
+    span.record("alert_id", tracing::field::display(&alert_info.alert_id));
+    span.record(
+        "affected_resource",
+        tracing::field::display(&alert_info.affected_resource),
+    );
 
     // Self-exclusion filter: break the OTLP feedback loop (ADR-007).
     // If the alert targets the platform's own resource, acknowledge but don't investigate.

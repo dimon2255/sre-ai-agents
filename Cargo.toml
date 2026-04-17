@@ -31,6 +31,10 @@ sre-orchestrator = { path = "crates/orchestrator" }
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+tracing-opentelemetry.workspace = true
+opentelemetry.workspace = true
+opentelemetry_sdk.workspace = true
+opentelemetry-otlp.workspace = true
 clap.workspace = true
 axum.workspace = true
 serde_json.workspace = true
@@ -73,9 +77,14 @@ sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio",
 
 # Observability
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-tracing-opentelemetry = "0.27"
-opentelemetry = "0.27"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "registry"] }
+tracing-opentelemetry = "0.32"
+opentelemetry = "0.31"
+opentelemetry_sdk = "0.31"
+opentelemetry-otlp = { version = "0.31", default-features = false, features = ["trace", "grpc-tonic", "http-proto", "reqwest-blocking-client"] }
+
+# URL parsing
+url = "2"
 
 # IDs and time
 uuid = { version = "1", features = ["v4", "serde"] }

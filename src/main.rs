@@ -6,14 +6,18 @@ use axum::extract::DefaultBodyLimit;
 use axum::routing::{get, post};
 use axum::Router;
 use clap::{Parser, Subcommand};
+use opentelemetry::trace::TracerProvider as _;
+use opentelemetry_sdk::trace::SdkTracerProvider;
 use tokio::sync::{mpsc, Semaphore};
 use tracing::{error, info, warn};
-use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{fmt, EnvFilter, Registry};
 
 use sre_agents::{AgentHandle, LogsAgent, MetricsAgent, SreAgent, TriageAgent};
 use sre_azure::auth::AzureCredentialProvider;
 use sre_azure::query_client::AzureQueryClient;
-use sre_common::config::PlatformConfig;
+use sre_common::config::{ObservabilityConfig, PlatformConfig};
 use sre_common::messages::*;
 use sre_orchestrator::{AgentRouter, Orchestrator};
 use sre_store::SqliteStore;
@@ -57,29 +61,57 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize tracing
-    fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("info,sre_orchestrator=debug,sre_agents=debug")),
-        )
-        .with_target(true)
-        .with_thread_ids(false)
-        .init();
-
     let cli = Cli::parse();
 
-    // Load configuration
+    // Load configuration before tracing so OTel layer can be conditionally added
     let config = load_config(&cli.config)?;
 
-    match cli.command {
+    // Build the subscriber stack
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info,sre_orchestrator=debug,sre_agents=debug"));
+
+    let fmt_layer = fmt::layer().with_target(true).with_thread_ids(false);
+
+    let _tracer_provider = if config.observability.enabled {
+        config.observability.validate_endpoint()?;
+        let provider = init_tracer_provider(&config.observability)?;
+        let tracer = provider.tracer(config.observability.service_name.clone());
+        let otel_layer = tracing_opentelemetry::layer().with_tracer(tracer);
+
+        Registry::default()
+            .with(env_filter)
+            .with(fmt_layer)
+            .with(otel_layer)
+            .init();
+
+        info!(
+            endpoint = %config.observability.otlp_endpoint,
+            service = %config.observability.service_name,
+            "OpenTelemetry tracing enabled"
+        );
+        Some(provider)
+    } else {
+        Registry::default().with(env_filter).with(fmt_layer).init();
+        None
+    };
+
+    let result = match cli.command {
         Commands::Serve => run_server(config).await,
         Commands::Investigate {
             resource,
             severity,
             signal_type,
         } => run_investigation(config, resource, severity, signal_type).await,
+    };
+
+    // Flush pending OTel spans before exit
+    if let Some(provider) = _tracer_provider {
+        if let Err(e) = provider.shutdown() {
+            warn!(error = %e, "Failed to flush OpenTelemetry spans");
+        }
     }
+
+    result
 }
 
 /// Load platform configuration from TOML file with env var overrides
@@ -93,6 +125,38 @@ fn load_config(path: &str) -> anyhow::Result<PlatformConfig> {
 
     info!("Configuration loaded from {path}");
     Ok(config)
+}
+
+/// Initialize an OpenTelemetry tracer provider with OTLP HTTP exporter
+fn init_tracer_provider(obs_config: &ObservabilityConfig) -> anyhow::Result<SdkTracerProvider> {
+    use opentelemetry::KeyValue;
+    use opentelemetry_otlp::{SpanExporter, WithExportConfig};
+    use opentelemetry_sdk::Resource;
+
+    let resource = Resource::builder()
+        .with_attributes([
+            KeyValue::new("service.name", obs_config.service_name.clone()),
+            KeyValue::new("service.version", env!("CARGO_PKG_VERSION").to_string()),
+            KeyValue::new("deployment.environment", obs_config.environment.clone()),
+        ])
+        .build();
+
+    let traces_endpoint = format!(
+        "{}/v1/traces",
+        obs_config.otlp_endpoint.trim_end_matches('/')
+    );
+
+    let http_exporter = SpanExporter::builder()
+        .with_http()
+        .with_endpoint(&traces_endpoint)
+        .build()?;
+
+    let provider = SdkTracerProvider::builder()
+        .with_resource(resource)
+        .with_batch_exporter(http_exporter)
+        .build();
+
+    Ok(provider)
 }
 
 /// Spawn a single agent and register its handle with the router.

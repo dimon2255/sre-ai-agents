@@ -32,3 +32,9 @@ listen_port = 8080
 
 [store]
 database_url = "sqlite://data/sre-agents.db"
+
+# [observability]
+# enabled = false
+# otlp_endpoint = "http://localhost:4318"
+# service_name = "sre-agents-platform"
+# environment = "staging"

@@ -107,6 +107,7 @@ impl SqliteStore {
 
 #[async_trait]
 impl WorkflowStore for SqliteStore {
+    #[tracing::instrument(skip(self, workflow), fields(workflow_id = %workflow.id))]
     async fn create_workflow(&self, workflow: &WorkflowRecord) -> Result<(), StoreError> {
         let id = workflow.id.to_string();
         let state = serde_json::to_string(&workflow.state)
@@ -137,6 +138,7 @@ impl WorkflowStore for SqliteStore {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self), fields(workflow_id = %workflow_id, new_state = ?state))]
     async fn update_state(
         &self,
         workflow_id: &Uuid,
@@ -199,6 +201,7 @@ impl WorkflowStore for SqliteStore {
         rows.into_iter().map(|r| r.into_record()).collect()
     }
 
+    #[tracing::instrument(skip(self, report), fields(workflow_id = %workflow_id))]
     async fn store_report(
         &self,
         workflow_id: &Uuid,
@@ -226,6 +229,7 @@ impl WorkflowStore for SqliteStore {
 
 #[async_trait]
 impl EventLog for SqliteStore {
+    #[tracing::instrument(skip(self, message), fields(correlation_id = %message.correlation_id))]
     async fn append(&self, message: &AgentMessage) -> Result<(), StoreError> {
         let id = message.id.to_string();
         let correlation_id = message.correlation_id.to_string();

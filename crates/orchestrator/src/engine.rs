@@ -60,13 +60,24 @@ impl Orchestrator {
     /// 3. Fan out to investigation agents based on triage result
     /// 4. Collect results with timeout (all on the scoped channel)
     /// 5. Aggregate findings and generate report
-    #[instrument(skip(self), fields(alert_id = %alert.alert_id, resource = %alert.affected_resource))]
+    #[instrument(skip(self), fields(
+        alert_id = %alert.alert_id,
+        resource = %alert.affected_resource,
+        severity = %alert.severity,
+        signal_type = %alert.signal_type,
+        workflow_id,
+        investigation.outcome,
+        investigation.findings_count,
+        investigation.confidence,
+        investigation.duration_ms,
+    ))]
     pub async fn investigate(
         &self,
         alert: AlertInfo,
     ) -> Result<InvestigationReport, OrchestratorError> {
         let mut workflow = InvestigationWorkflow::new(&alert);
         let correlation_id = *workflow.id();
+        tracing::Span::current().record("workflow_id", tracing::field::display(&correlation_id));
         let agent_timeout = Duration::from_secs(self.config.orchestrator.agent_timeout_secs);
 
         // Per-investigation reply channel (ADR-006)
@@ -256,6 +267,16 @@ impl Orchestrator {
 
         let report = workflow.generate_report();
         let _ = self.store.store_report(&correlation_id, &report).await;
+
+        // Record outcome fields on the root span for trace filtering
+        let span = tracing::Span::current();
+        span.record(
+            "investigation.outcome",
+            tracing::field::display(&final_state),
+        );
+        span.record("investigation.findings_count", report.findings.len());
+        span.record("investigation.confidence", report.overall_confidence);
+        span.record("investigation.duration_ms", report.duration_ms);
 
         info!(
             workflow_id = %correlation_id,

@@ -107,6 +107,7 @@ impl AzureQueryClient {
     }
 
     /// Internal: execute a KQL query against any endpoint
+    #[instrument(skip(self, token, kql), fields(url))]
     async fn execute_kql_query(
         &self,
         url: &str,
