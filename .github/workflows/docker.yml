@@ -10,6 +10,7 @@ jobs:
   build-and-smoke-test:
     name: Build & Smoke Test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
 
@@ -19,11 +20,32 @@ jobs:
       - name: Verify binary starts
         run: docker run --rm sre-agents:test --help
 
+      - name: Start Postgres sidecar for smoke test
+        run: |
+          docker network create smoke-net
+          docker run -d --name smoke-pg --network smoke-net \
+            -e POSTGRES_PASSWORD=password \
+            -e POSTGRES_DB=sre_agents \
+            postgres:16-alpine
+          # Wait for Postgres ready
+          for i in $(seq 1 20); do
+            if docker exec smoke-pg pg_isready -U postgres > /dev/null 2>&1; then
+              echo "Postgres ready on attempt $i"
+              break
+            fi
+            echo "Postgres not ready (attempt $i), waiting..."
+            sleep 2
+          done
+
       - name: Smoke test health probe
         run: |
-          docker run -d --name sre-smoke -p 8080:8080 sre-agents:test
-          # Wait for startup (SQLite migration + listener bind)
-          for i in $(seq 1 15); do
+          docker run -d --name sre-smoke \
+            --network smoke-net \
+            -p 8080:8080 \
+            -e SRE__STORE__DATABASE_URL=postgres://postgres:password@smoke-pg:5432/sre_agents \
+            sre-agents:test
+          # Wait for startup (Postgres migration + listener bind)
+          for i in $(seq 1 20); do
             if curl -sf http://localhost:8080/healthz > /dev/null 2>&1; then
               echo "Health probe returned 200 on attempt $i"
               break
@@ -34,8 +56,15 @@ jobs:
           # Show container logs for diagnosis if probe fails
           echo "=== Container logs ==="
           docker logs sre-smoke
+          echo "=== Postgres logs ==="
+          docker logs smoke-pg | tail -20
           echo "=== End logs ==="
           # Assert health probe succeeds
           curl -f http://localhost:8080/healthz
-          # Cleanup
-          docker stop sre-smoke
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker stop sre-smoke smoke-pg 2>/dev/null || true
+          docker rm sre-smoke smoke-pg 2>/dev/null || true
+          docker network rm smoke-net 2>/dev/null || true

@@ -31,7 +31,9 @@ listen_addr = "0.0.0.0"
 listen_port = 8080
 
 [store]
-database_url = "sqlite://data/sre-agents.db"
+# Local dev default assumes Postgres running at localhost:5432 with user=postgres / password=password.
+# Override via SRE__STORE__DATABASE_URL in staging/prod.
+database_url = "postgres://postgres:password@localhost:5432/sre_agents"
 
 # [observability]
 # enabled = false

@@ -119,7 +119,7 @@
 |---|-----------|--------|-------|
 | 1 | Staging deployment (Terraform + ACA) | Done | `infra/staging/`, release workflow, OIDC auth, deployed to `aca-sre-agents-demo` |
 | 2 | OpenTelemetry instrumentation | Done | 15 spans across critical path, OTLP HTTP exporter, config-driven (`SRE__OBSERVABILITY__ENABLED`) |
-| 3 | PostgreSQL migration (replace SQLite) | Not Started | `psql-sre-agents-staging` exists; swap store backend |
+| 3 | PostgreSQL migration (replace SQLite) | Done | Hard cut-over shipped 2026-04-19: `sqlite` feature removed, `PgStore` replaces `SqliteStore` across orchestrator/webhook/tests. Integration tests use `testcontainers-modules` (postgres:16-alpine pinned). Smoke test in `docker.yml` runs against a Postgres sidecar on a shared docker network. Staging DB provisioned via `azurerm_postgresql_flexible_server_database.app`; app role created out-of-band via `infra/staging/create-app-user.sql`. Password auth in ACA secret; MI follow-up tied to ADR-011. **Schema modernization (TEXT→UUID/JSONB/TIMESTAMPTZ, f64 precision fix, composite index) scheduled as a follow-up corrective migration — see ADR-012.** |
 | 4 | TraceAgent (distributed traces) | Not Started | App Insights trace correlation |
 | 5 | InfraAgent (Activity Log, Resource Health) | Not Started | Azure Activity Log + Resource Health API |
 | 6 | Webhook authentication (ADR-008) | Not Started | Shared secret + Azure AD bearer token validation |
@@ -130,7 +130,7 @@
 
 - [x] Terraform deploys ACA app to staging via GitHub Actions release workflow
 - [x] OpenTelemetry traces flow across orchestrator and all agents
-- [ ] PostgreSQL stores full audit history (replaces SQLite)
+- [x] PostgreSQL stores full audit history (replaces SQLite)
 - [ ] TraceAgent correlates distributed traces and identifies dependency failures
 - [ ] InfraAgent detects recent deployments/config changes correlated with incidents
 - [ ] Webhook endpoint authenticated (ADR-008 implemented)
@@ -187,6 +187,9 @@
 - Approval gate as separate crate (`sre-gates`) — trust boundary separation
 - `sre-agents-identity` acceptable for Phase 2a/2b; scoped identity required before Phase 2c (ADR-011)
 - Single OIDC federated credential per GitHub environment
+- Postgres migration is a hard cut-over: `sqlite` feature dropped from `crates/store/Cargo.toml`, compiler enforces removal of every SQLite call site. No runtime backend selection, no feature-flag hedge
+- Postgres auth in Phase 2a uses password-in-ACA-secret; Managed Identity token auth deferred to ADR-011 follow-up
+- Store tests run against real Postgres via `testcontainers-rs` (both local and CI) — no SQLite in-memory shortcut
 
 ---
 
@@ -249,3 +252,4 @@
 | Agent platform down during incident | Critical | 99.9% availability SLO, graceful degradation, circuit breaking |
 | Token/credential management | High | Managed Identity in Azure, config-driven auth mode (mock for dev) |
 | Unauthenticated webhook endpoint | Medium | Phase 1: ACA ingress only. Phase 2: ADR-008 (shared secret / Azure AD) |
+| Ephemeral audit trail on staging | ~~High~~ Resolved | **Resolved 2026-04-19**: Postgres cut-over shipped (Phase 2a task #3). App now writes to `sre_agents` DB on `psql-sre-agents-staging`; `SRE__STORE__DATABASE_URL` composed from `SRE_AGENTS_DB_PASSWORD` GitHub secret. Audit history survives container restarts. |

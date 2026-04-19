@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use tempfile::TempDir;
+use testcontainers_modules::postgres::Postgres;
+use testcontainers_modules::testcontainers::runners::AsyncRunner;
+use testcontainers_modules::testcontainers::{ContainerAsync, ImageExt};
 use tokio::sync::mpsc;
 
 use sre_agents::traits::SreAgent;
@@ -10,14 +12,22 @@ use sre_azure::query_client::AzureQueryClient;
 use sre_common::config::PlatformConfig;
 use sre_common::messages::*;
 use sre_orchestrator::{AgentRouter, Orchestrator};
-use sre_store::{EventLog, SqliteStore, WorkflowStore};
+use sre_store::{EventLog, PgStore, WorkflowStore};
 
-async fn setup() -> (Orchestrator, Vec<tokio::task::JoinHandle<()>>, TempDir) {
-    let dir = TempDir::new().unwrap();
-    let db_path = dir.path().join("test.db");
-    let url = format!("sqlite://{}", db_path.display());
+async fn setup() -> (
+    Orchestrator,
+    Vec<tokio::task::JoinHandle<()>>,
+    ContainerAsync<Postgres>,
+) {
+    let container = Postgres::default()
+        .with_tag("16-alpine")
+        .start()
+        .await
+        .unwrap();
+    let port = container.get_host_port_ipv4(5432).await.unwrap();
+    let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
 
-    let store = Arc::new(SqliteStore::new(&url).await.unwrap());
+    let store = Arc::new(PgStore::new(&url).await.unwrap());
     let event_log = store.clone();
 
     let credential: Arc<dyn sre_azure::TokenProvider> =
@@ -62,7 +72,7 @@ async fn setup() -> (Orchestrator, Vec<tokio::task::JoinHandle<()>>, TempDir) {
     handles.push(tokio::spawn(async move { agent.run(rx).await.unwrap() }));
 
     let orchestrator = Orchestrator::new(config, router, store, event_log);
-    (orchestrator, handles, dir)
+    (orchestrator, handles, container)
 }
 
 fn make_alert(resource: &str, severity: AlertSeverity) -> AlertInfo {
@@ -83,7 +93,7 @@ fn make_alert(resource: &str, severity: AlertSeverity) -> AlertInfo {
 
 #[tokio::test]
 async fn test_full_investigation_flow() {
-    let (orchestrator, _handles, _dir) = setup().await;
+    let (orchestrator, _handles, _container) = setup().await;
 
     let alert = make_alert("payments-api", AlertSeverity::Sev1);
     let report = orchestrator.investigate(alert).await.unwrap();
@@ -107,7 +117,7 @@ async fn test_full_investigation_flow() {
 
 #[tokio::test]
 async fn test_investigation_sev0_critical() {
-    let (orchestrator, _handles, _dir) = setup().await;
+    let (orchestrator, _handles, _container) = setup().await;
 
     let alert = make_alert("critical-service", AlertSeverity::Sev0);
     let report = orchestrator.investigate(alert).await.unwrap();
@@ -118,7 +128,7 @@ async fn test_investigation_sev0_critical() {
 
 #[tokio::test]
 async fn test_investigation_includes_all_agents() {
-    let (orchestrator, _handles, _dir) = setup().await;
+    let (orchestrator, _handles, _container) = setup().await;
 
     let alert = make_alert("web-app", AlertSeverity::Sev2);
     let report = orchestrator.investigate(alert).await.unwrap();
@@ -134,7 +144,7 @@ async fn test_investigation_includes_all_agents() {
 
 #[tokio::test]
 async fn test_investigation_report_is_valid_json() {
-    let (orchestrator, _handles, _dir) = setup().await;
+    let (orchestrator, _handles, _container) = setup().await;
 
     let alert = make_alert("api-gateway", AlertSeverity::Sev1);
     let report = orchestrator.investigate(alert).await.unwrap();
@@ -151,11 +161,15 @@ async fn test_investigation_report_is_valid_json() {
 
 #[tokio::test]
 async fn test_workflow_state_persisted() {
-    let dir = TempDir::new().unwrap();
-    let db_path = dir.path().join("test.db");
-    let url = format!("sqlite://{}", db_path.display());
+    let container = Postgres::default()
+        .with_tag("16-alpine")
+        .start()
+        .await
+        .unwrap();
+    let port = container.get_host_port_ipv4(5432).await.unwrap();
+    let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
 
-    let store = Arc::new(SqliteStore::new(&url).await.unwrap());
+    let store = Arc::new(PgStore::new(&url).await.unwrap());
     let event_log = store.clone();
 
     let credential: Arc<dyn sre_azure::TokenProvider> =

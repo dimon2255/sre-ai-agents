@@ -112,14 +112,14 @@ You can have **multiple `impl` blocks** for the same struct — Rust doesn't car
 
 ```rust
 // Like implementing an interface in C#
-impl WorkflowStore for SqliteStore {
+impl WorkflowStore for PgStore {
     async fn create_workflow(&self, ...) { ... }
 }
 ```
 
 ```csharp
 // C# equivalent
-public class SqliteStore : IWorkflowStore {
+public class PgStore : IWorkflowStore {
     public async Task CreateWorkflow(...) { ... }
 }
 ```

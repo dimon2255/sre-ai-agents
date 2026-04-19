@@ -3,7 +3,9 @@ use std::sync::Arc;
 
 use axum::routing::{get, post};
 use axum::Router;
-use tempfile::TempDir;
+use testcontainers_modules::postgres::Postgres;
+use testcontainers_modules::testcontainers::runners::AsyncRunner;
+use testcontainers_modules::testcontainers::{ContainerAsync, ImageExt};
 use tokio::sync::{mpsc, Semaphore};
 
 use sre_agents::traits::SreAgent;
@@ -13,7 +15,7 @@ use sre_azure::query_client::AzureQueryClient;
 use sre_common::config::PlatformConfig;
 use sre_common::messages::*;
 use sre_orchestrator::{AgentRouter, Orchestrator};
-use sre_store::SqliteStore;
+use sre_store::PgStore;
 
 // Import production types and handlers directly — tests should exercise
 // the real code paths, not re-implementations.
@@ -49,18 +51,22 @@ fn sample_alert_payload() -> serde_json::Value {
     })
 }
 
-async fn setup_test_server() -> (String, Arc<SqliteStore>, TempDir) {
+async fn setup_test_server() -> (String, Arc<PgStore>, ContainerAsync<Postgres>) {
     setup_test_server_with_config(PlatformConfig::default()).await
 }
 
 async fn setup_test_server_with_config(
     config: PlatformConfig,
-) -> (String, Arc<SqliteStore>, TempDir) {
-    let dir = tempfile::TempDir::new().unwrap();
-    let db_path = dir.path().join("test.db");
-    let url = format!("sqlite://{}", db_path.display());
+) -> (String, Arc<PgStore>, ContainerAsync<Postgres>) {
+    let container = Postgres::default()
+        .with_tag("16-alpine")
+        .start()
+        .await
+        .unwrap();
+    let port = container.get_host_port_ipv4(5432).await.unwrap();
+    let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
 
-    let store = Arc::new(SqliteStore::new(&url).await.unwrap());
+    let store = Arc::new(PgStore::new(&url).await.unwrap());
     let event_log = store.clone();
 
     let credential: Arc<dyn sre_azure::TokenProvider> =
@@ -160,14 +166,14 @@ async fn setup_test_server_with_config(
         axum::serve(listener, app).await.unwrap();
     });
 
-    (base_url, store, dir)
+    (base_url, store, container)
 }
 
 // ─── Health Probe Tests ───
 
 #[tokio::test]
 async fn test_healthz_returns_200() {
-    let (base_url, _store, _dir) = setup_test_server().await;
+    let (base_url, _store, _container) = setup_test_server().await;
 
     let resp = reqwest::get(format!("{base_url}/healthz")).await.unwrap();
     assert_eq!(resp.status(), 200);
@@ -175,7 +181,7 @@ async fn test_healthz_returns_200() {
 
 #[tokio::test]
 async fn test_readyz_returns_200_when_db_healthy() {
-    let (base_url, _store, _dir) = setup_test_server().await;
+    let (base_url, _store, _container) = setup_test_server().await;
 
     let resp = reqwest::get(format!("{base_url}/readyz")).await.unwrap();
     assert_eq!(resp.status(), 200);
@@ -183,7 +189,7 @@ async fn test_readyz_returns_200_when_db_healthy() {
 
 #[tokio::test]
 async fn test_startupz_returns_200() {
-    let (base_url, _store, _dir) = setup_test_server().await;
+    let (base_url, _store, _container) = setup_test_server().await;
 
     let resp = reqwest::get(format!("{base_url}/startupz")).await.unwrap();
     assert_eq!(resp.status(), 200);
@@ -193,7 +199,7 @@ async fn test_startupz_returns_200() {
 
 #[tokio::test]
 async fn test_webhook_accepts_valid_alert() {
-    let (base_url, _store, _dir) = setup_test_server().await;
+    let (base_url, _store, _container) = setup_test_server().await;
 
     let client = reqwest::Client::new();
     let resp = client
@@ -208,7 +214,7 @@ async fn test_webhook_accepts_valid_alert() {
 
 #[tokio::test]
 async fn test_webhook_rejects_invalid_payload() {
-    let (base_url, _store, _dir) = setup_test_server().await;
+    let (base_url, _store, _container) = setup_test_server().await;
 
     let client = reqwest::Client::new();
     let resp = client
@@ -229,7 +235,7 @@ async fn test_self_exclusion_filter() {
             .to_string(),
     );
 
-    let (base_url, _store, _dir) = setup_test_server_with_config(config).await;
+    let (base_url, _store, _container) = setup_test_server_with_config(config).await;
 
     let client = reqwest::Client::new();
     let resp = client
@@ -249,7 +255,7 @@ async fn test_self_exclusion_filter() {
 async fn test_webhook_e2e_alert_to_investigation() {
     use sre_store::WorkflowStore;
 
-    let (base_url, store, _dir) = setup_test_server().await;
+    let (base_url, store, _container) = setup_test_server().await;
 
     let client = reqwest::Client::new();
     let resp = client

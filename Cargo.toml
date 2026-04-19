@@ -45,10 +45,10 @@ config.workspace = true
 
 [dev-dependencies]
 reqwest = { workspace = true }
-tempfile.workspace = true
 tokio = { workspace = true }
 serde_json.workspace = true
 sqlx = { workspace = true }
+testcontainers-modules.workspace = true
 
 [workspace.package]
 version = "0.1.0"
@@ -73,7 +73,7 @@ azure_identity = "0.22"
 azure_core = "0.22"
 
 # Database
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "uuid", "chrono", "macros"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "macros", "migrate"] }
 
 # Observability
 tracing = "0.1"
@@ -108,8 +108,8 @@ axum = "0.8"
 
 # Testing
 wiremock = "0.6"
-tempfile = "3"
 tokio-test = "0.4"
+testcontainers-modules = { version = "0.15", features = ["postgres"] }
 
 [profile.release]
 lto = "thin"

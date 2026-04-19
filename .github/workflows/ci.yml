@@ -35,6 +35,10 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    # Integration tests spin up Postgres containers via testcontainers-rs.
+    # ubuntu-latest runners have Docker pre-installed and the runner user
+    # has access to the daemon — no extra setup required.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -46,6 +50,8 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-test-
+      - name: Verify Docker available (testcontainers requires it)
+        run: docker version
       - name: Run tests
         run: cargo test --workspace
 

@@ -77,7 +77,7 @@ pub struct AgentHandle {
 
 ### Message Persistence
 
-Every message is appended to the event log (SQLite in Phase 1, PostgreSQL in Phase 2) before delivery. This gives us:
+Every message is appended to the event log (PostgreSQL; was SQLite in Phase 1) before delivery. This gives us:
 
 - Full audit trail for any investigation
 - Replay capability for debugging and testing

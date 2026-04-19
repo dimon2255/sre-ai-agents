@@ -119,7 +119,7 @@ impl InvestigationWorkflow {
 
         // Sort findings by severity (Critical first)
         let mut sorted_findings = self.findings.clone();
-        sorted_findings.sort_by(|a, b| a.severity.cmp(&b.severity));
+        sorted_findings.sort_by_key(|a| a.severity);
 
         // Calculate overall confidence
         let overall_confidence = if sorted_findings.is_empty() {

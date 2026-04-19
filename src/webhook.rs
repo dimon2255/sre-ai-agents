@@ -13,7 +13,7 @@ use sre_azure::alerts_client::AzureAlertsClient;
 use sre_azure::models::AzureCommonAlert;
 use sre_common::config::PlatformConfig;
 use sre_common::messages::AlertInfo;
-use sre_store::SqliteStore;
+use sre_store::PgStore;
 
 /// Shared application state for axum handlers and background tasks.
 ///
@@ -24,8 +24,8 @@ pub struct AppState {
     /// Sender side of the alert channel. Webhook handler sends `AlertInfo`
     /// here; the orchestrator loop receives on the other end.
     pub alert_tx: mpsc::Sender<AlertInfo>,
-    /// Store reference for readiness probe (SQLite connectivity check).
-    pub store: Arc<SqliteStore>,
+    /// Store reference for readiness probe (Postgres connectivity check).
+    pub store: Arc<PgStore>,
     /// Epoch milliseconds of the orchestrator loop's last iteration.
     /// Written by the orchestrator loop, read by liveness/readiness probes.
     pub heartbeat: Arc<AtomicU64>,
@@ -175,7 +175,7 @@ pub async fn readyz(State(state): State<AppState>) -> impl IntoResponse {
         reasons.push("orchestrator heartbeat stale");
     }
 
-    // Check SQLite connectivity
+    // Check Postgres connectivity
     if state.store.ping().await.is_err() {
         reasons.push("database unreachable");
     }

@@ -212,7 +212,7 @@ impl Default for PlatformConfig {
                 channel_capacity: 64,
             },
             store: StoreConfig {
-                database_url: "sqlite://data/sre-agents.db".to_string(),
+                database_url: "postgres://postgres:password@localhost:5432/sre_agents".to_string(),
             },
             observability: ObservabilityConfig::default(),
         }

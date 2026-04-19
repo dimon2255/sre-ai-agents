@@ -26,7 +26,7 @@ This is an orchestrator + sub-agents platform for automated SRE incident investi
 - **`sre-common`** — Shared types: `AgentMessage` envelope, `AlertInfo`, `Finding`, `InvestigationReport`, `PlatformConfig`, error hierarchy. All inter-crate communication types live here.
 - **`sre-azure`** — Azure API layer: `TokenProvider` trait for auth, `AzureQueryClient` for KQL execution via REST API, `AzureAlertsClient` for Common Alert Schema parsing, parameterized KQL templates in `kql_templates.rs`.
 - **`sre-agents`** — `SreAgent` trait (async inbox/outbox pattern) + implementations: `TriageAgent`, `LogsAgent`, `MetricsAgent`. Each agent is a long-lived tokio task processing messages from an `mpsc::Receiver` and sending results via `mpsc::Sender`.
-- **`sre-store`** — Persistence: `WorkflowStore` + `EventLog` traits with `SqliteStore` implementation. Auto-creates DB file on first run. Tables: `workflows`, `event_log`.
+- **`sre-store`** — Persistence: `WorkflowStore` + `EventLog` traits with `PgStore` implementation (Postgres via `sqlx`). Schema bootstrapped by `sqlx::migrate!()` against `crates/store/migrations/`. Tables: `workflows`, `event_log`. Integration tests spin up a real Postgres via `testcontainers-modules` — Docker is required for `cargo test`.
 - **`sre-orchestrator`** — Investigation engine: `Orchestrator` drives the workflow state machine, `AgentRouter` routes messages by agent type, `FindingAggregator` merges results, `InvestigationWorkflow` tracks state transitions.
 - **Root crate** (`src/main.rs`, `src/webhook.rs`) — CLI entrypoint (clap), bootstrap wiring, webhook handler skeleton.
 

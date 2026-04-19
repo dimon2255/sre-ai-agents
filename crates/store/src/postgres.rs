@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
+use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
 use std::str::FromStr;
 use tracing::{debug, info};
 use uuid::Uuid;
@@ -11,19 +11,18 @@ use sre_common::messages::AgentMessage;
 use crate::models::{WorkflowRecord, WorkflowState};
 use crate::traits::{EventLog, WorkflowStore};
 
-/// SQLite-backed implementation of WorkflowStore and EventLog
-pub struct SqliteStore {
-    pool: SqlitePool,
+/// Postgres-backed implementation of WorkflowStore and EventLog
+pub struct PgStore {
+    pool: PgPool,
 }
 
-impl SqliteStore {
-    /// Create a new SqliteStore, running migrations
+impl PgStore {
+    /// Create a new PgStore, running migrations
     pub async fn new(database_url: &str) -> Result<Self, StoreError> {
-        let options = SqliteConnectOptions::from_str(database_url)
-            .map_err(|e| StoreError::Database(e.to_string()))?
-            .create_if_missing(true);
+        let options = PgConnectOptions::from_str(database_url)
+            .map_err(|e| StoreError::Database(e.to_string()))?;
 
-        let pool = SqlitePoolOptions::new()
+        let pool = PgPoolOptions::new()
             .max_connections(5)
             .connect_with(options)
             .await
@@ -31,7 +30,7 @@ impl SqliteStore {
 
         let store = Self { pool };
         store.run_migrations().await?;
-        info!("SQLite store initialized");
+        info!("Postgres store initialized");
         Ok(store)
     }
 
@@ -45,68 +44,18 @@ impl SqliteStore {
     }
 
     async fn run_migrations(&self) -> Result<(), StoreError> {
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS workflows (
-                id TEXT PRIMARY KEY,
-                state TEXT NOT NULL,
-                alert_id TEXT NOT NULL,
-                affected_resource TEXT NOT NULL,
-                severity TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                report_json TEXT
-            )
-            "#,
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| StoreError::MigrationFailed(e.to_string()))?;
+        sqlx::migrate!()
+            .run(&self.pool)
+            .await
+            .map_err(|e| StoreError::MigrationFailed(e.to_string()))?;
 
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS event_log (
-                id TEXT PRIMARY KEY,
-                correlation_id TEXT NOT NULL,
-                source_agent TEXT NOT NULL,
-                payload_json TEXT NOT NULL,
-                confidence REAL NOT NULL,
-                timestamp TEXT NOT NULL,
-                parent_message_id TEXT
-            )
-            "#,
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| StoreError::MigrationFailed(e.to_string()))?;
-
-        sqlx::query(
-            r#"
-            CREATE INDEX IF NOT EXISTS idx_event_log_correlation
-            ON event_log(correlation_id)
-            "#,
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| StoreError::MigrationFailed(e.to_string()))?;
-
-        sqlx::query(
-            r#"
-            CREATE INDEX IF NOT EXISTS idx_workflows_state
-            ON workflows(state)
-            "#,
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| StoreError::MigrationFailed(e.to_string()))?;
-
-        debug!("SQLite migrations complete");
+        debug!("Postgres migrations complete");
         Ok(())
     }
 }
 
 #[async_trait]
-impl WorkflowStore for SqliteStore {
+impl WorkflowStore for PgStore {
     #[tracing::instrument(skip(self, workflow), fields(workflow_id = %workflow.id))]
     async fn create_workflow(&self, workflow: &WorkflowRecord) -> Result<(), StoreError> {
         let id = workflow.id.to_string();
@@ -120,7 +69,7 @@ impl WorkflowStore for SqliteStore {
         sqlx::query(
             r#"
             INSERT INTO workflows (id, state, alert_id, affected_resource, severity, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#,
         )
         .bind(&id)
@@ -151,7 +100,7 @@ impl WorkflowStore for SqliteStore {
 
         let result = sqlx::query(
             r#"
-            UPDATE workflows SET state = ?, updated_at = ? WHERE id = ?
+            UPDATE workflows SET state = $1, updated_at = $2 WHERE id = $3
             "#,
         )
         .bind(&state_json)
@@ -175,7 +124,7 @@ impl WorkflowStore for SqliteStore {
         let row = sqlx::query_as::<_, WorkflowRow>(
             r#"
             SELECT id, state, alert_id, affected_resource, severity, created_at, updated_at, report_json
-            FROM workflows WHERE id = ?
+            FROM workflows WHERE id = $1
             "#,
         )
         .bind(&id)
@@ -213,7 +162,7 @@ impl WorkflowStore for SqliteStore {
 
         sqlx::query(
             r#"
-            UPDATE workflows SET report_json = ? WHERE id = ?
+            UPDATE workflows SET report_json = $1 WHERE id = $2
             "#,
         )
         .bind(&report_json)
@@ -228,7 +177,7 @@ impl WorkflowStore for SqliteStore {
 }
 
 #[async_trait]
-impl EventLog for SqliteStore {
+impl EventLog for PgStore {
     #[tracing::instrument(skip(self, message), fields(correlation_id = %message.correlation_id))]
     async fn append(&self, message: &AgentMessage) -> Result<(), StoreError> {
         let id = message.id.to_string();
@@ -242,7 +191,7 @@ impl EventLog for SqliteStore {
         sqlx::query(
             r#"
             INSERT INTO event_log (id, correlation_id, source_agent, payload_json, confidence, timestamp, parent_message_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#,
         )
         .bind(&id)
@@ -268,7 +217,7 @@ impl EventLog for SqliteStore {
         let rows = sqlx::query_as::<_, EventRow>(
             r#"
             SELECT payload_json FROM event_log
-            WHERE correlation_id = ?
+            WHERE correlation_id = $1
             ORDER BY timestamp ASC
             "#,
         )
@@ -290,7 +239,7 @@ impl EventLog for SqliteStore {
 
         let row: (i64,) = sqlx::query_as(
             r#"
-            SELECT COUNT(*) FROM event_log WHERE correlation_id = ?
+            SELECT COUNT(*) FROM event_log WHERE correlation_id = $1
             "#,
         )
         .bind(&cid)

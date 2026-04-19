@@ -19,5 +19,5 @@ serde_json.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
-tempfile.workspace = true
 sre-azure = { path = "../azure" }
+testcontainers-modules.workspace = true

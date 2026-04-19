@@ -63,7 +63,7 @@ sre-agents/
 ├── Cargo.toml                  # Workspace root
 ├── crates/
 │   ├── common/                 # Shared types: messages, findings, config, errors
-│   ├── store/                  # Persistence: traits + SQLite (Phase 1) / PostgreSQL (Phase 2)
+│   ├── store/                  # Persistence: traits + PostgreSQL (Phase 2a onward; was SQLite in Phase 1)
 │   ├── azure/                  # Azure API clients: KQL, alerts, auth
 │   ├── agents/                 # Agent implementations: triage, logs, metrics
 │   └── orchestrator/           # Workflow engine, routing, aggregation, timeouts

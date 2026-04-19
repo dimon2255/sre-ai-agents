@@ -20,7 +20,7 @@ use sre_azure::query_client::AzureQueryClient;
 use sre_common::config::{ObservabilityConfig, PlatformConfig};
 use sre_common::messages::*;
 use sre_orchestrator::{AgentRouter, Orchestrator};
-use sre_store::SqliteStore;
+use sre_store::PgStore;
 
 use crate::webhook::AppState;
 
@@ -184,13 +184,9 @@ fn spawn_agent(
 /// Bootstrap all agents and return the orchestrator, agent join handles, and shared store
 async fn bootstrap(
     config: &PlatformConfig,
-) -> anyhow::Result<(
-    Orchestrator,
-    Vec<tokio::task::JoinHandle<()>>,
-    Arc<SqliteStore>,
-)> {
+) -> anyhow::Result<(Orchestrator, Vec<tokio::task::JoinHandle<()>>, Arc<PgStore>)> {
     // Initialize store
-    let store = Arc::new(SqliteStore::new(&config.store.database_url).await?);
+    let store = Arc::new(PgStore::new(&config.store.database_url).await?);
     let event_log = store.clone();
 
     // Initialize Azure credential based on config auth_mode

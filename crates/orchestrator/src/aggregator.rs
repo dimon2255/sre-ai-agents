@@ -69,7 +69,7 @@ impl FindingAggregator {
         }
 
         // Sort by severity (most severe first)
-        deduped.sort_by(|a, b| a.severity.cmp(&b.severity));
+        deduped.sort_by_key(|a| a.severity);
         deduped
     }
 }

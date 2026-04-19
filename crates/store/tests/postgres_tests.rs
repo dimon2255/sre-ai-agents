@@ -1,5 +1,7 @@
 use chrono::Utc;
-use tempfile::TempDir;
+use testcontainers_modules::postgres::Postgres;
+use testcontainers_modules::testcontainers::runners::AsyncRunner;
+use testcontainers_modules::testcontainers::{ContainerAsync, ImageExt};
 use uuid::Uuid;
 
 use sre_common::findings::{
@@ -8,14 +10,18 @@ use sre_common::findings::{
 use sre_common::messages::*;
 use sre_store::models::{WorkflowRecord, WorkflowState};
 use sre_store::traits::{EventLog, WorkflowStore};
-use sre_store::SqliteStore;
+use sre_store::PgStore;
 
-async fn create_test_store() -> (SqliteStore, TempDir) {
-    let dir = TempDir::new().unwrap();
-    let db_path = dir.path().join("test.db");
-    let url = format!("sqlite://{}", db_path.display());
-    let store = SqliteStore::new(&url).await.unwrap();
-    (store, dir) // keep dir alive so temp dir isn't deleted
+async fn create_test_store() -> (PgStore, ContainerAsync<Postgres>) {
+    let container = Postgres::default()
+        .with_tag("16-alpine")
+        .start()
+        .await
+        .unwrap();
+    let port = container.get_host_port_ipv4(5432).await.unwrap();
+    let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
+    let store = PgStore::new(&url).await.unwrap();
+    (store, container) // keep container alive so it isn't stopped
 }
 
 fn make_workflow() -> WorkflowRecord {
@@ -46,7 +52,7 @@ fn make_agent_message(correlation_id: Uuid) -> AgentMessage {
 
 #[tokio::test]
 async fn test_create_and_get_workflow() {
-    let (store, _dir) = create_test_store().await;
+    let (store, _container) = create_test_store().await;
     let workflow = make_workflow();
     let id = workflow.id;
 
@@ -62,14 +68,14 @@ async fn test_create_and_get_workflow() {
 
 #[tokio::test]
 async fn test_get_nonexistent_workflow() {
-    let (store, _dir) = create_test_store().await;
+    let (store, _container) = create_test_store().await;
     let result = store.get_workflow(&Uuid::new_v4()).await.unwrap();
     assert!(result.is_none());
 }
 
 #[tokio::test]
 async fn test_update_workflow_state() {
-    let (store, _dir) = create_test_store().await;
+    let (store, _container) = create_test_store().await;
     let workflow = make_workflow();
     let id = workflow.id;
 
@@ -86,7 +92,7 @@ async fn test_update_workflow_state() {
 
 #[tokio::test]
 async fn test_update_nonexistent_workflow_fails() {
-    let (store, _dir) = create_test_store().await;
+    let (store, _container) = create_test_store().await;
     let result = store
         .update_state(&Uuid::new_v4(), WorkflowState::Triaging)
         .await;
@@ -95,7 +101,7 @@ async fn test_update_nonexistent_workflow_fails() {
 
 #[tokio::test]
 async fn test_get_active_workflows() {
-    let (store, _dir) = create_test_store().await;
+    let (store, _container) = create_test_store().await;
 
     // Create 3 workflows in different states
     let w1 = make_workflow();
@@ -123,7 +129,7 @@ async fn test_get_active_workflows() {
 
 #[tokio::test]
 async fn test_store_report() {
-    let (store, _dir) = create_test_store().await;
+    let (store, _container) = create_test_store().await;
     let workflow = make_workflow();
     let id = workflow.id;
 
@@ -174,7 +180,7 @@ async fn test_store_report() {
 
 #[tokio::test]
 async fn test_append_and_retrieve_events() {
-    let (store, _dir) = create_test_store().await;
+    let (store, _container) = create_test_store().await;
     let correlation_id = Uuid::new_v4();
 
     let msg1 = make_agent_message(correlation_id);
@@ -193,7 +199,7 @@ async fn test_append_and_retrieve_events() {
 
 #[tokio::test]
 async fn test_event_count() {
-    let (store, _dir) = create_test_store().await;
+    let (store, _container) = create_test_store().await;
     let correlation_id = Uuid::new_v4();
 
     for _ in 0..5 {
@@ -212,7 +218,7 @@ async fn test_event_count() {
 
 #[tokio::test]
 async fn test_event_count_empty() {
-    let (store, _dir) = create_test_store().await;
+    let (store, _container) = create_test_store().await;
     let count = store
         .count_by_correlation_id(&Uuid::new_v4())
         .await
