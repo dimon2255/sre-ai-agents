@@ -153,6 +153,22 @@ pub enum AlertSeverity {
     Sev4,
 }
 
+impl AlertSeverity {
+    /// Canonical short label: matches the `alert_severity` Postgres ENUM
+    /// values and the Azure Common Alert Schema `severity` field. Use this
+    /// when persisting or comparing; `Display` is reserved for the verbose
+    /// human-readable form.
+    pub fn as_label(&self) -> &'static str {
+        match self {
+            Self::Sev0 => "Sev0",
+            Self::Sev1 => "Sev1",
+            Self::Sev2 => "Sev2",
+            Self::Sev3 => "Sev3",
+            Self::Sev4 => "Sev4",
+        }
+    }
+}
+
 impl std::fmt::Display for AlertSeverity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -161,6 +177,21 @@ impl std::fmt::Display for AlertSeverity {
             Self::Sev2 => write!(f, "Sev2-Warning"),
             Self::Sev3 => write!(f, "Sev3-Informational"),
             Self::Sev4 => write!(f, "Sev4-Verbose"),
+        }
+    }
+}
+
+impl std::str::FromStr for AlertSeverity {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Sev0" => Ok(Self::Sev0),
+            "Sev1" => Ok(Self::Sev1),
+            "Sev2" => Ok(Self::Sev2),
+            "Sev3" => Ok(Self::Sev3),
+            "Sev4" => Ok(Self::Sev4),
+            other => Err(format!("unknown AlertSeverity label: {other}")),
         }
     }
 }

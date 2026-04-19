@@ -227,7 +227,7 @@ async fn test_query_injects_bearer_token() {
         .await;
 
     let credential = Arc::new(MockTokenProvider::new("my-secret-token"));
-    let client = AzureQueryClient::new(credential).with_log_analytics_base_url(&mock_server.uri());
+    let client = AzureQueryClient::new(credential).with_log_analytics_base_url(mock_server.uri());
 
     let result = client.query_log_analytics("ws-1", "test", "PT1H").await;
 

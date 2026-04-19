@@ -81,3 +81,20 @@ impl std::fmt::Display for WorkflowState {
         }
     }
 }
+
+impl std::str::FromStr for WorkflowState {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "created" => Ok(Self::Created),
+            "triaging" => Ok(Self::Triaging),
+            "investigating" => Ok(Self::Investigating),
+            "synthesizing" => Ok(Self::Synthesizing),
+            "resolved" => Ok(Self::Resolved),
+            "escalated" => Ok(Self::Escalated),
+            "failed" => Ok(Self::Failed),
+            other => Err(format!("unknown WorkflowState label: {other}")),
+        }
+    }
+}
