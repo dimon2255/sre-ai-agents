@@ -42,6 +42,10 @@ uuid.workspace = true
 chrono.workspace = true
 anyhow.workspace = true
 config.workspace = true
+hmac.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+hex.workspace = true
 
 [dev-dependencies]
 reqwest = { workspace = true }
@@ -105,6 +109,12 @@ clap = { version = "4", features = ["derive"] }
 
 # Web server (webhook endpoint)
 axum = "0.8"
+
+# Webhook HMAC authentication (ADR-008)
+hmac = "0.12"
+sha2 = "0.10"
+subtle = "2.5"
+hex = "0.4"
 
 # Testing
 wiremock = "0.6"

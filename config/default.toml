@@ -29,6 +29,11 @@ default_timespan_minutes = 30
 [webhook]
 listen_addr = "0.0.0.0"
 listen_port = 8080
+# HMAC-SHA256 shared secret for webhook auth (ADR-008).
+# When unset, the /api/v1/alerts/azure endpoint runs unauthenticated (dev only).
+# Staging/production MUST override via SRE__WEBHOOK__HMAC_SECRET.
+# hmac_secret = ""
+# hmac_skew_seconds = 300
 
 [store]
 # Local dev default assumes Postgres running at localhost:5432 with user=postgres / password=password.

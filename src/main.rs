@@ -22,8 +22,10 @@ use sre_common::messages::*;
 use sre_orchestrator::{AgentRouter, Orchestrator};
 use sre_store::PgStore;
 
+use crate::middleware::hmac::{self as hmac_auth, HmacAuth};
 use crate::webhook::AppState;
 
+mod middleware;
 mod webhook;
 
 #[derive(Parser)]
@@ -267,11 +269,38 @@ async fn run_server(config: PlatformConfig) -> anyhow::Result<()> {
         config: config.clone(),
     };
 
+    // HMAC auth is applied ONLY to the alert route (ADR-008). Health probes
+    // stay unauthenticated so ACA can hit them. If no secret is configured,
+    // the middleware is not mounted and the webhook runs unauthenticated —
+    // a loud warning is logged. Staging and production must set the secret.
+    let alert_routes = {
+        let r = Router::new().route("/api/v1/alerts/azure", post(webhook::handle_azure_alert));
+        match config.webhook.hmac_secret.as_ref() {
+            Some(secret) if !secret.is_empty() => {
+                let auth = HmacAuth::new(
+                    secret.clone().into_bytes(),
+                    config.webhook.hmac_skew_seconds,
+                );
+                r.layer(axum::middleware::from_fn_with_state(
+                    auth,
+                    hmac_auth::verify,
+                ))
+            }
+            _ => {
+                warn!(
+                    "SRE_WEBHOOK_SECRET is not set — webhook authentication is DISABLED. \
+                     Do not run this configuration in staging or production."
+                );
+                r
+            }
+        }
+    };
+
     let app = Router::new()
         .route("/startupz", get(webhook::startupz))
         .route("/healthz", get(webhook::healthz))
         .route("/readyz", get(webhook::readyz))
-        .route("/api/v1/alerts/azure", post(webhook::handle_azure_alert))
+        .merge(alert_routes)
         .layer(DefaultBodyLimit::max(64 * 1024)) // 64 KB — Azure alert payloads are typically 2-5 KB
         .with_state(app_state);
 

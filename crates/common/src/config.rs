@@ -83,10 +83,24 @@ pub struct WebhookConfig {
     /// Alert channel capacity (queued alerts before returning 503)
     #[serde(default = "default_channel_capacity")]
     pub channel_capacity: usize,
+    /// HMAC-SHA256 shared secret for webhook authentication (ADR-008).
+    /// When `None`, the HMAC middleware is not mounted and the webhook runs
+    /// unauthenticated (developer ergonomics for local `cargo run -- serve`).
+    /// Staging and production MUST set this via `SRE_WEBHOOK_SECRET`.
+    #[serde(default)]
+    pub hmac_secret: Option<String>,
+    /// Maximum allowed clock skew between client timestamp and server time,
+    /// in seconds. Bounds the replay window for captured signed requests.
+    #[serde(default = "default_hmac_skew_seconds")]
+    pub hmac_skew_seconds: u64,
 }
 
 fn default_channel_capacity() -> usize {
     64
+}
+
+fn default_hmac_skew_seconds() -> u64 {
+    300
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -210,6 +224,8 @@ impl Default for PlatformConfig {
                 listen_port: 8080,
                 self_resource_id: None,
                 channel_capacity: 64,
+                hmac_secret: None,
+                hmac_skew_seconds: 300,
             },
             store: StoreConfig {
                 database_url: "postgres://postgres:password@localhost:5432/sre_agents".to_string(),

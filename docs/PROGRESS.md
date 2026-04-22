@@ -122,7 +122,7 @@
 | 3 | PostgreSQL migration (replace SQLite) | Done | Hard cut-over shipped 2026-04-19: `sqlite` feature removed, `PgStore` replaces `SqliteStore` across orchestrator/webhook/tests. Integration tests use `testcontainers-modules` (postgres:16-alpine pinned). Smoke test in `docker.yml` runs against a Postgres sidecar on a shared docker network. Staging DB provisioned via `azurerm_postgresql_flexible_server_database.app`; app role created out-of-band via `infra/staging/create-app-user.sql`. Password auth in ACA secret; MI follow-up tied to ADR-011. **Schema modernization (TEXT→UUID/JSONB/TIMESTAMPTZ, f64 precision fix, composite index) scheduled as a follow-up corrective migration — see ADR-012.** |
 | 4 | TraceAgent (distributed traces) | Not Started | App Insights trace correlation |
 | 5 | InfraAgent (Activity Log, Resource Health) | Not Started | Azure Activity Log + Resource Health API |
-| 6 | Webhook authentication (ADR-008) | Not Started | Shared secret + Azure AD bearer token validation |
+| 6 | Webhook authentication (ADR-008) | Done | ADR-008 Accepted 2026-04-21. HMAC-SHA256 middleware (`src/middleware/hmac.rs`) wired on `/api/v1/alerts/azure` only, `{timestamp}.{body}` signed payload with 5-min skew window, constant-time compare via `subtle::ConstantTimeEq`. Config: `WebhookConfig.hmac_secret` (required in staging) + `hmac_skew_seconds` (default 300). 7 integration + 5 unit tests green, clippy `-D warnings` clean. Terraform wired: new `webhook_hmac_secret` var with ≥32-char validation, ACA secret `webhook-hmac-secret`, env `SRE__WEBHOOK__HMAC_SECRET`. Release workflow reads `secrets.SRE_WEBHOOK_HMAC_SECRET` — operator must add this to the GitHub `staging` environment before the next release run. AAD bearer deferred to Phase 2b. |
 | 7 | Remediation safety model (ADR-009 draft) | Not Started | Threat model for Phase 2c, design only |
 | 8 | Load test baseline | Not Started | Target: 50 concurrent investigations, P99 < 5s |
 
@@ -133,7 +133,7 @@
 - [x] PostgreSQL stores full audit history (replaces SQLite)
 - [ ] TraceAgent correlates distributed traces and identifies dependency failures
 - [ ] InfraAgent detects recent deployments/config changes correlated with incidents
-- [ ] Webhook endpoint authenticated (ADR-008 implemented)
+- [x] Webhook endpoint authenticated (ADR-008 implemented, 2026-04-21)
 - [ ] Load test baseline established (50 concurrent investigations without degradation)
 
 ### Phase 2b — Scaling Infrastructure (3-4 weeks)
@@ -236,7 +236,7 @@
 | [ADR-005](adr/005-kql-template-driven-queries.md) | KQL Template-Driven Queries | Accepted |
 | [ADR-006](adr/006-per-investigation-reply-channels.md) | Per-Investigation Reply Channels | Accepted |
 | [ADR-007](adr/007-cicd-containerization-aca-deployment.md) | CI/CD, Containerization, ACA Deployment | Accepted |
-| ADR-008 | Webhook Authentication | Planned (Phase 2a) |
+| [ADR-008](adr/008-webhook-authentication.md) | Webhook Authentication (HMAC-SHA256) | Accepted (2026-04-21) |
 | ADR-009 | Remediation Safety Model | Planned (Phase 2a draft, Phase 2c impl) |
 | ADR-010 | NATS JetStream Design | Planned (Phase 2b) |
 | ADR-011 | Identity Separation for Remediation | Planned (Phase 2c) |
