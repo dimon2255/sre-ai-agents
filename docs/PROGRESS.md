@@ -123,7 +123,7 @@
 | 4 | TraceAgent (distributed traces) | Not Started | App Insights trace correlation |
 | 5 | InfraAgent (Activity Log, Resource Health) | Not Started | Azure Activity Log + Resource Health API |
 | 6 | Webhook authentication (ADR-008) | Done | ADR-008 Accepted 2026-04-21. HMAC-SHA256 middleware (`src/middleware/hmac.rs`) wired on `/api/v1/alerts/azure` only, `{timestamp}.{body}` signed payload with 5-min skew window, constant-time compare via `subtle::ConstantTimeEq`. Config: `WebhookConfig.hmac_secret` (required in staging) + `hmac_skew_seconds` (default 300). 7 integration + 5 unit tests green, clippy `-D warnings` clean. Terraform wired: new `webhook_hmac_secret` var with ≥32-char validation, ACA secret `webhook-hmac-secret`, env `SRE__WEBHOOK__HMAC_SECRET`. Release workflow reads `secrets.SRE_WEBHOOK_HMAC_SECRET` — operator must add this to the GitHub `staging` environment before the next release run. AAD bearer deferred to Phase 2b. |
-| 7 | Remediation safety model (ADR-009 draft) | Not Started | Threat model for Phase 2c, design only |
+| 7 | Remediation safety model (ADR-009 draft) | Draft | ADR-009 in review (2026-04-22) — `docs/adr/009-remediation-safety-model.md`. Threat model (STRIDE + MITRE ATT&CK), RiskLevel enum (ReadOnly/LowRisk/HighRisk/Destructive), auto-approve policy, guardrails, rollback contract, audit schema additions, forward-ref to ADR-011 for identity separation. Implementation is Phase 2c. |
 | 8 | Load test baseline | Not Started | Target: 50 concurrent investigations, P99 < 5s |
 
 #### Phase 2a Exit Criteria
@@ -237,7 +237,7 @@
 | [ADR-006](adr/006-per-investigation-reply-channels.md) | Per-Investigation Reply Channels | Accepted |
 | [ADR-007](adr/007-cicd-containerization-aca-deployment.md) | CI/CD, Containerization, ACA Deployment | Accepted |
 | [ADR-008](adr/008-webhook-authentication.md) | Webhook Authentication (HMAC-SHA256) | Accepted (2026-04-21) |
-| ADR-009 | Remediation Safety Model | Planned (Phase 2a draft, Phase 2c impl) |
+| [ADR-009](adr/009-remediation-safety-model.md) | Remediation Safety Model | Draft (2026-04-22) |
 | ADR-010 | NATS JetStream Design | Planned (Phase 2b) |
 | ADR-011 | Identity Separation for Remediation | Planned (Phase 2c) |
 
