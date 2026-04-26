@@ -1,0 +1,29 @@
+{
+  "schemaId": "azureMonitorCommonAlertSchema",
+  "data": {
+    "essentials": {
+      "alertId": "__ALERT_ID__",
+      "alertRule": "High Error Rate (load-test)",
+      "severity": "Sev2",
+      "signalType": "Metric",
+      "monitorCondition": "Fired",
+      "alertTargetIDs": [
+        "/subscriptions/load-test/resourceGroups/rg-loadtest/providers/Microsoft.Web/sites/loadtest-target"
+      ],
+      "firedDateTime": "__FIRED_DATE_TIME__",
+      "description": "Synthetic alert emitted by k6 load-test harness (Phase 2a task #5)."
+    },
+    "alertContext": {
+      "conditionType": "SingleResourceMultipleMetricCriteria",
+      "condition": {
+        "allOf": [
+          {
+            "metricName": "Http5xx",
+            "metricValue": 150.0,
+            "threshold": 10.0
+          }
+        ]
+      }
+    }
+  }
+}
