@@ -1,10 +1,17 @@
-// Phase 2a load baseline — scenario #2: ramp.
+// Phase 2a load baseline — scenario #2: ramp (arrival-rate).
 //
-// Linearly increases concurrency from 0 → 50 VUs over 10 minutes, then
-// holds at 50 for 2 minutes. Purpose: find the throughput ceiling and
-// the VU count at which P99 latency starts to degrade. Drives the
-// "concurrent investigations before heartbeat starvation" number in
-// the baseline report.
+// Linearly increases the OFFERED ARRIVAL RATE from 50 → 150 req/s over
+// 10 minutes. Purpose: trace the latency-vs-throughput curve around the
+// observed knee (~89 req/s drain on a single 0.5 vCPU ACA replica with
+// max_concurrent_investigations=10). The first stage matches scenario #1
+// (50 req/s, verified good), the last stage overshoots to validate that
+// degradation past the knee is graceful (503 backpressure, no 5xx).
+//
+// The earlier ramping-vus design hammered every stage above the knee
+// from t=0 (10 VUs at ~30 req/s each = ~300 req/s offered on the very
+// first stage), producing 88% failures but no usable curve. Switched
+// to ramping-arrival-rate so the knee position can be read off the
+// chart instead of inferred.
 //
 // Thresholds here are INFORMATIONAL (not gating) — this scenario is an
 // exploration. Hard gates live in scenario #1 (steady state).
@@ -35,22 +42,26 @@ if (!SECRET && !NO_AUTH) {
 export const options = {
     scenarios: {
         ramp: {
-            executor: 'ramping-vus',
-            startVUs: 0,
+            executor: 'ramping-arrival-rate',
+            startRate: 25,
+            timeUnit: '1s',
+            preAllocatedVUs: 50,
+            maxVUs: 200,
             stages: [
-                { duration: '2m', target: 10 },   // warm up
-                { duration: '3m', target: 25 },   // mid ramp
-                { duration: '3m', target: 40 },   // approach ceiling
-                { duration: '2m', target: 50 },   // peak
-                { duration: '2m', target: 50 },   // hold at peak
+                { duration: '2m', target: 50 },   // matches scenario #1 baseline (verified good)
+                { duration: '2m', target: 75 },   // approach knee
+                { duration: '2m', target: 100 },  // around knee (~89 req/s observed drain)
+                { duration: '2m', target: 125 },  // past knee
+                { duration: '2m', target: 150 },  // overload — validates clean degradation
             ],
-            gracefulRampDown: '30s',
+            gracefulStop: '30s',
         },
     },
     // Informational thresholds — we want the data, not a pass/fail gate.
-    // The steady-state scenario owns the hard gates.
+    // Failures past the knee are EXPECTED (503 backpressure). The
+    // steady-state scenario owns the hard gates.
     thresholds: {
-        'http_req_failed': ['rate<0.05'],  // allow up to 5% 503s at peak
+        'http_req_failed': ['rate<0.50'],  // overload stages will push this
         'http_req_duration{expected_response:true}': ['p(95)<2000', 'p(99)<5000'],
         'checks': ['rate>0.90'],
     },

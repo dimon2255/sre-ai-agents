@@ -49,10 +49,10 @@ k6 run tests/load/scenarios/01-steady-state.js \
 
 | # | File | Purpose | Thresholds | Status |
 |---|------|---------|------------|--------|
-| 1 | `01-steady-state.js` | 10 VUs × 5 min — establishes steady-state P50/P95/P99 | **gating** (fail < 1% errors, P95 < 500ms, P99 < 1s) | Done |
-| 2 | `02-ramp.js` | Linear ramp 0 → 50 VUs over 12 min — finds throughput ceiling | informational (loose pass gates) | Done |
-| 3 | `03-burst.js` | 50 VUs for 2 min — exercises backpressure (channel + concurrency limit) | gates: no 500s, no `401`s, ≥30% 202s (rest are 503 backpressure) | Done |
-| 4 | `04-chaos-drain.js` | Kill a replica mid-load — validates graceful drain under real traffic | — | TODO (needs `az containerapp revision restart` hook) |
+| 1 | `01-steady-state.js` | 50 req/s constant-arrival × 5 min — establishes steady-state P50/P95/P99 | **gating** (fail < 1% errors, P95 < 500ms, P99 < 1s) | Done |
+| 2 | `02-ramp.js` | Arrival-rate ramp 50 → 150 req/s over 10 min — traces latency curve around the knee | informational (loose pass gates) | Done |
+| 3 | `03-burst.js` | 50 VUs for 2 min — exercises backpressure (channel + concurrency limit) | gates: no 500s, no `401`s, ≥4% 202s (rest are 503 backpressure) | Done |
+| 4 | `04-chaos-drain.js` | Kill a replica mid-load — validates graceful drain under real traffic | — | Deferred to Phase 2b (depends on NATS-backed replay; tracked in ADR-010 work) |
 
 Each scenario accepts `--env NO_AUTH=true` to run against an unauthenticated local server. When `K6_WEBHOOK_SECRET` is set, requests are signed via `lib/signing.js`.
 
