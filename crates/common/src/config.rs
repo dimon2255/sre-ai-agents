@@ -194,6 +194,24 @@ pub struct NatsConfig {
     /// Number of stream replicas. 1 for staging, 3 for prod.
     #[serde(default = "default_nats_num_replicas")]
     pub num_replicas: usize,
+    /// Enable the dead-letter stream (ADR-013 PR-3). When `true`, poison
+    /// messages (parse failures) are republished to `dlq_subject` for
+    /// forensic inspection before being terminated, instead of dropped.
+    #[serde(default = "default_nats_dlq_enabled")]
+    pub dlq_enabled: bool,
+    /// JetStream stream name for the DLQ. Created if absent.
+    #[serde(default = "default_nats_dlq_stream_name")]
+    pub dlq_stream_name: String,
+    /// Subject filter the DLQ stream binds (wildcard).
+    #[serde(default = "default_nats_dlq_subject_filter")]
+    pub dlq_subject_filter: String,
+    /// Concrete subject poison messages are published to.
+    #[serde(default = "default_nats_dlq_subject")]
+    pub dlq_subject: String,
+    /// Max age of DLQ messages in hours. Defaults wider than the main
+    /// stream (7 days) for forensic retention.
+    #[serde(default = "default_nats_dlq_max_age_hours")]
+    pub dlq_max_age_hours: u64,
 }
 
 fn default_nats_url() -> String {
@@ -232,6 +250,26 @@ fn default_nats_num_replicas() -> usize {
     1
 }
 
+fn default_nats_dlq_enabled() -> bool {
+    true
+}
+
+fn default_nats_dlq_stream_name() -> String {
+    "sre-alerts-dlq".to_string()
+}
+
+fn default_nats_dlq_subject_filter() -> String {
+    "alerts.dlq.azure.>".to_string()
+}
+
+fn default_nats_dlq_subject() -> String {
+    "alerts.dlq.azure.poison".to_string()
+}
+
+fn default_nats_dlq_max_age_hours() -> u64 {
+    168
+}
+
 impl Default for NatsConfig {
     fn default() -> Self {
         Self {
@@ -246,6 +284,11 @@ impl Default for NatsConfig {
             max_deliver: default_nats_max_deliver(),
             max_age_hours: default_nats_max_age_hours(),
             num_replicas: default_nats_num_replicas(),
+            dlq_enabled: default_nats_dlq_enabled(),
+            dlq_stream_name: default_nats_dlq_stream_name(),
+            dlq_subject_filter: default_nats_dlq_subject_filter(),
+            dlq_subject: default_nats_dlq_subject(),
+            dlq_max_age_hours: default_nats_dlq_max_age_hours(),
         }
     }
 }

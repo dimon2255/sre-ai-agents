@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed (2026-05-18). First implementation in `feat/nats-jetstream-ingest`.
+Accepted (2026-05-18; PR-1 merged as #18). PR-2 (OTel metrics) and PR-3 (DLQ
+stream) implemented 2026-06-20.
 
 ## Context
 
@@ -97,8 +98,8 @@ Both the axum server and the NATS ingestor task receive a shared `tokio_util::sy
 
 ### Out of Scope for PR-1
 
-- DLQ stream and consumer (`alerts.dlq.azure.>`) — PR-3
-- OTel metrics for `nats_consumer_pending`, `nats_redeliveries_total`, `nats_dlq_total` — PR-2
+- DLQ stream and consumer (`alerts.dlq.azure.>`) — PR-3 ✅ **implemented**: stream `sre-alerts-dlq`, poison payloads routed to `alerts.dlq.azure.poison` with `Sre-Dlq-Reason` / `Sre-Original-Subject` headers before `AckKind::Term`. Gated by `nats.dlq_enabled` (default on)
+- OTel metrics for `nats_consumer_pending`, `nats_redeliveries_total`, `nats_dlq_total` — PR-2 ✅ **implemented**: global `SdkMeterProvider` (OTLP gRPC, gated by `observability.enabled`); the gauge and redelivery counter are read from the per-message JetStream `Info` (`pending`, `delivered`), so recording costs no extra round-trips
 - Azure → NATS bridge (Logic App / Function) — out of scope entirely; this ADR governs the consumer side only
 - Reply-subject refactor of `InboundMessage` (memory note: `InboundMessage.reply_tx` is a `mpsc::Sender`, non-serializable). Not needed until agent replies cross NATS, which is a Phase 3 concern.
 

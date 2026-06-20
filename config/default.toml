@@ -71,3 +71,10 @@ database_url = "postgres://postgres:password@localhost:5432/sre_agents"
 # max_deliver = 5
 # max_age_hours = 24
 # num_replicas = 1
+# Dead-letter queue (ADR-013 PR-3): poison (unparseable) messages are
+# republished to the DLQ stream before being terminated, for forensic inspection.
+# dlq_enabled = true
+# dlq_stream_name = "sre-alerts-dlq"
+# dlq_subject_filter = "alerts.dlq.azure.>"
+# dlq_subject = "alerts.dlq.azure.poison"
+# dlq_max_age_hours = 168

@@ -79,7 +79,7 @@ async fn main() -> anyhow::Result<()> {
 
     let fmt_layer = fmt::layer().with_target(true).with_thread_ids(false);
 
-    let _tracer_provider = if config.observability.enabled {
+    let (_tracer_provider, _meter_provider) = if config.observability.enabled {
         config.observability.validate_endpoint()?;
         let provider = init_tracer_provider(&config.observability)?;
         let tracer = provider.tracer(config.observability.service_name.clone());
@@ -98,10 +98,17 @@ async fn main() -> anyhow::Result<()> {
         );
 
         probe_otel_exporter(&provider);
-        Some(provider)
+
+        // Metrics pipeline (ADR-013 PR-2): install a global MeterProvider so
+        // the NATS ingestor's instruments export over the same OTLP endpoint.
+        let meter_provider = init_meter_provider(&config.observability)?;
+        opentelemetry::global::set_meter_provider(meter_provider.clone());
+        info!("OpenTelemetry metrics enabled");
+
+        (Some(provider), Some(meter_provider))
     } else {
         Registry::default().with(env_filter).with(fmt_layer).init();
-        None
+        (None, None)
     };
 
     let result = match cli.command {
@@ -117,6 +124,13 @@ async fn main() -> anyhow::Result<()> {
     if let Some(provider) = _tracer_provider {
         if let Err(e) = provider.shutdown() {
             warn!(error = %e, "Failed to flush OpenTelemetry spans");
+        }
+    }
+
+    // Flush pending OTel metrics before exit
+    if let Some(provider) = _meter_provider {
+        if let Err(e) = provider.shutdown() {
+            warn!(error = %e, "Failed to flush OpenTelemetry metrics");
         }
     }
 
@@ -176,6 +190,45 @@ fn init_tracer_provider(obs_config: &ObservabilityConfig) -> anyhow::Result<SdkT
     let provider = SdkTracerProvider::builder()
         .with_resource(resource)
         .with_batch_exporter(grpc_exporter)
+        .build();
+
+    Ok(provider)
+}
+
+/// Initialize an OpenTelemetry meter provider with the OTLP gRPC exporter.
+///
+/// Mirrors [`init_tracer_provider`] for the metrics signal. A periodic reader
+/// (default 60s push interval) exports the NATS ingestor's instruments
+/// (`nats_consumer_pending`, `nats_redeliveries_total`, `nats_dlq_total`) over
+/// the same OTLP endpoint as traces. Endpoint resolution follows the same rule
+/// as traces: an empty config value lets the SDK read
+/// `OTEL_EXPORTER_OTLP_ENDPOINT` (auto-injected by the ACA env-managed agent).
+fn init_meter_provider(
+    obs_config: &ObservabilityConfig,
+) -> anyhow::Result<opentelemetry_sdk::metrics::SdkMeterProvider> {
+    use opentelemetry::KeyValue;
+    use opentelemetry_otlp::{MetricExporter, WithExportConfig};
+    use opentelemetry_sdk::metrics::SdkMeterProvider;
+    use opentelemetry_sdk::Resource;
+
+    let resource = Resource::builder()
+        .with_attributes(vec![
+            KeyValue::new("service.name", obs_config.service_name.clone()),
+            KeyValue::new("service.version", env!("CARGO_PKG_VERSION").to_string()),
+            KeyValue::new("deployment.environment", obs_config.environment.clone()),
+        ])
+        .build();
+
+    let mut builder = MetricExporter::builder().with_tonic();
+    let endpoint = obs_config.otlp_endpoint.trim_end_matches('/');
+    if !endpoint.is_empty() {
+        builder = builder.with_endpoint(endpoint);
+    }
+    let exporter = builder.build()?;
+
+    let provider = SdkMeterProvider::builder()
+        .with_resource(resource)
+        .with_periodic_exporter(exporter)
         .build();
 
     Ok(provider)

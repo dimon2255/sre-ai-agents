@@ -5,6 +5,7 @@
 //! Everything in this module is **above the seam** (boundary). Nothing here
 //! should know about agents, the orchestrator workflow, or the store.
 
+pub mod metrics;
 pub mod nats;
 
 use tokio::sync::mpsc;
