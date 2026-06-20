@@ -210,6 +210,76 @@ async fn test_logs_agent_with_no_workspaces() {
     handle.await.unwrap().unwrap();
 }
 
+#[tokio::test]
+async fn test_logs_agent_fans_out_across_multiple_workspaces() {
+    // Multi-workspace investigation (Phase 3, ADR-020): the LogsAgent queries
+    // every configured Log Analytics workspace and attributes each finding to its
+    // source workspace. With no Azure reachable the per-workspace queries fail,
+    // but the fan-out + attribution are exactly what we're asserting.
+    let credential = Arc::new(MockTokenProvider::new("test-token"));
+    let workspaces = vec![
+        "ws-east".to_string(),
+        "ws-west".to_string(),
+        "ws-eu".to_string(),
+    ];
+    let agent = LogsAgent::new(
+        Arc::new(AzureQueryClient::new(credential)),
+        workspaces.clone(),
+        1000,
+    );
+
+    let (agent_tx, agent_rx) = mpsc::channel(16);
+    let handle = tokio::spawn(async move { agent.run(agent_rx).await });
+
+    let correlation_id = uuid::Uuid::new_v4();
+    let msg = AgentMessage::new(
+        correlation_id,
+        AgentId("orchestrator".to_string()),
+        MessageTarget::Agent(AgentId("logs-agent".to_string())),
+        AgentPayload::AnalysisTask(AnalysisTask {
+            task_type: AnalysisTaskType::ErrorAnalysis,
+            params: InvestigationParams {
+                resource_name: "payments-api".to_string(),
+                resource_group: Some("prod-rg".to_string()),
+                timespan_minutes: 30,
+                operation_ids: vec![],
+            },
+        }),
+        1.0,
+    );
+
+    let mut reply_rx = send_with_reply(&agent_tx, msg).await;
+    let response = tokio::time::timeout(Duration::from_secs(10), reply_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+
+    if let AgentPayload::AnalysisResult(result) = &response.payload {
+        // Every configured workspace is represented in the findings' source scopes.
+        let scopes: std::collections::HashSet<String> = result
+            .findings
+            .iter()
+            .flat_map(|f| f.source_scopes())
+            .collect();
+        let expected: std::collections::HashSet<String> = workspaces.iter().cloned().collect();
+        assert_eq!(
+            scopes, expected,
+            "the agent should fan out to and attribute all 3 workspaces"
+        );
+        // The summary reports the multi-workspace fan-out.
+        assert!(
+            result.summary.contains("3 Log Analytics workspaces"),
+            "summary should note multi-workspace scope: {}",
+            result.summary
+        );
+    } else {
+        panic!("Expected AnalysisResult");
+    }
+
+    drop(agent_tx);
+    handle.await.unwrap().unwrap();
+}
+
 // ─── MetricsAgent Tests ───
 
 #[tokio::test]

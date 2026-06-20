@@ -81,29 +81,33 @@ impl LogsAgent {
                         let records = table.to_records();
                         if !records.is_empty() {
                             findings.push(
-                                self.analyze_error_spike_results(&records, &params.resource_name),
+                                self.analyze_error_spike_results(&records, &params.resource_name)
+                                    .with_source_scope(workspace_id),
                             );
                         }
                     }
                 }
                 Err(e) => {
                     warn!(workspace_id, error = %e, "Error spike query failed");
-                    findings.push(Finding {
-                        category: FindingCategory::Informational,
-                        severity: FindingSeverity::Low,
-                        title: "Log query failed".to_string(),
-                        description: format!(
-                            "Failed to query error logs for workspace {workspace_id}: {e}"
-                        ),
-                        confidence: 1.0,
-                        observed_at: None,
-                        source_agent: self.id.to_string(),
-                        evidence: vec![],
-                        suggestions: vec![
-                            "Verify Log Analytics workspace ID is correct".to_string(),
-                            "Check RBAC permissions (Log Analytics Reader)".to_string(),
-                        ],
-                    });
+                    findings.push(
+                        Finding {
+                            category: FindingCategory::Informational,
+                            severity: FindingSeverity::Low,
+                            title: "Log query failed".to_string(),
+                            description: format!(
+                                "Failed to query error logs for workspace {workspace_id}: {e}"
+                            ),
+                            confidence: 1.0,
+                            observed_at: None,
+                            source_agent: self.id.to_string(),
+                            evidence: vec![],
+                            suggestions: vec![
+                                "Verify Log Analytics workspace ID is correct".to_string(),
+                                "Check RBAC permissions (Log Analytics Reader)".to_string(),
+                            ],
+                        }
+                        .with_source_scope(workspace_id),
+                    );
                 }
             }
 
@@ -136,7 +140,8 @@ impl LogsAgent {
                         let records = table.to_records();
                         if !records.is_empty() {
                             findings.push(
-                                self.analyze_error_detail_results(&records, &params.resource_name),
+                                self.analyze_error_detail_results(&records, &params.resource_name)
+                                    .with_source_scope(workspace_id),
                             );
                         }
                     }
@@ -303,14 +308,22 @@ impl SreAgent for LogsAgent {
                         findings.iter().map(|f| f.confidence).sum::<f64>() / findings.len() as f64
                     };
 
+                    let scope_note = if self.workspace_ids.len() > 1 {
+                        format!(
+                            " across {} Log Analytics workspaces",
+                            self.workspace_ids.len()
+                        )
+                    } else {
+                        String::new()
+                    };
                     let summary = if findings.is_empty() {
                         format!(
-                            "No significant log anomalies found for {}",
+                            "No significant log anomalies found for {}{scope_note}",
                             task.params.resource_name
                         )
                     } else {
                         format!(
-                            "Found {} findings for {}",
+                            "Found {} findings for {}{scope_note}",
                             findings.len(),
                             task.params.resource_name
                         )
