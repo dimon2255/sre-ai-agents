@@ -126,3 +126,18 @@ database_url = "postgres://postgres:password@localhost:5432/sre_agents"
 # model = "claude-opus-4-8"
 # max_tokens = 2048
 # api_key_env = "ANTHROPIC_API_KEY"
+
+# Knowledge store + learning loop (Phase 3, ADR-016). A vector memory of past
+# incidents: grounds the reasoning engine with similar prior incidents (RAG) and
+# embeds each completed incident for future retrieval. Disabled by default. When
+# enabled it defaults to a deterministic in-memory mock (offline RAG, no
+# dependencies); set provider="qdrant" + url for the real vector DB (api_key_env
+# holds the Qdrant Cloud key, omit for a local Qdrant).
+# [knowledge]
+# enabled = false
+# provider = "mock"                 # mock | qdrant
+# url = "http://localhost:6333"
+# collection = "sre_incidents"
+# vector_dim = 256
+# top_k = 3
+# api_key_env = "QDRANT_API_KEY"

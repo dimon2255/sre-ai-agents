@@ -26,6 +26,19 @@ const MIN_DEDUP_CACHE_CAPACITY: usize = 64;
 /// Default channel_capacity=64 yields a 640-entry cache.
 const DEDUP_CACHE_CAPACITY_MULTIPLIER: usize = 10;
 
+/// Distinct finding-category names (Debug form, e.g. `"ErrorSpike"`),
+/// order-preserving. Used to key knowledge-store records and confidence stats.
+fn finding_category_names(findings: &[sre_common::findings::Finding]) -> Vec<String> {
+    let mut names = Vec::new();
+    for f in findings {
+        let name = format!("{:?}", f.category);
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    names
+}
+
 /// The central orchestrator that coordinates investigations (ADR-003, ADR-006).
 ///
 /// Responsibilities:
@@ -54,6 +67,13 @@ pub struct Orchestrator {
     /// Optional LLM reasoning engine (Phase 3, ADR-015). `None` unless enabled;
     /// set via [`Orchestrator::with_reasoning`].
     reasoning: Option<Arc<dyn sre_intelligence::ReasoningEngine>>,
+    /// Optional knowledge store for RAG grounding (Phase 3, ADR-016). `None`
+    /// unless enabled; set via [`Orchestrator::with_knowledge`]. Read before
+    /// reasoning to retrieve similar past incidents.
+    knowledge: Option<Arc<dyn sre_intelligence::KnowledgeStore>>,
+    /// Optional learning loop (Phase 3, ADR-016). `None` unless enabled; set via
+    /// [`Orchestrator::with_learning`]. Embeds each completed incident.
+    learning: Option<Arc<sre_intelligence::LearningLoop>>,
 }
 
 impl Orchestrator {
@@ -73,6 +93,8 @@ impl Orchestrator {
             dedup_cache: Arc::new(Mutex::new(AlertDedupCache::new(dedup_capacity))),
             remediation: None,
             reasoning: None,
+            knowledge: None,
+            learning: None,
         }
     }
 
@@ -95,6 +117,8 @@ impl Orchestrator {
             dedup_cache,
             remediation: None,
             reasoning: None,
+            knowledge: None,
+            learning: None,
         }
     }
 
@@ -109,6 +133,90 @@ impl Orchestrator {
     pub fn with_reasoning(mut self, engine: Arc<dyn sre_intelligence::ReasoningEngine>) -> Self {
         self.reasoning = Some(engine);
         self
+    }
+
+    /// Attach a knowledge store for RAG grounding (Phase 3, ADR-016). Builder
+    /// style. Retrieved past incidents ground the reasoning engine's RCA.
+    pub fn with_knowledge(mut self, store: Arc<dyn sre_intelligence::KnowledgeStore>) -> Self {
+        self.knowledge = Some(store);
+        self
+    }
+
+    /// Attach a learning loop (Phase 3, ADR-016). Builder style. Each completed
+    /// investigation is embedded back into the knowledge store.
+    pub fn with_learning(mut self, learning: Arc<sre_intelligence::LearningLoop>) -> Self {
+        self.learning = Some(learning);
+        self
+    }
+
+    /// Retrieve similar past incidents for RAG grounding (Phase 3, ADR-016).
+    /// Best-effort: returns empty when no knowledge store is configured or on any
+    /// retrieval error, so reasoning proceeds ungrounded rather than failing.
+    async fn retrieve_related(
+        &self,
+        report: &InvestigationReport,
+        alert: &AlertInfo,
+    ) -> Vec<String> {
+        let Some(store) = self.knowledge.as_ref() else {
+            return Vec::new();
+        };
+        let query = sre_intelligence::IncidentQuery {
+            affected_resource: report.affected_resource.clone(),
+            trigger: report.trigger.clone(),
+            severity: alert.severity.to_string(),
+            summary: report.summary.clone(),
+            finding_categories: finding_category_names(&report.findings),
+        };
+        match store.search(&query, self.config.knowledge.top_k).await {
+            Ok(hits) => {
+                if !hits.is_empty() {
+                    info!(
+                        count = hits.len(),
+                        engine = store.name(),
+                        "Retrieved related past incidents for RAG grounding"
+                    );
+                }
+                hits.iter().map(|h| h.grounding_line()).collect()
+            }
+            Err(e) => {
+                warn!(error = %e, "Knowledge retrieval failed — proceeding without grounding");
+                Vec::new()
+            }
+        }
+    }
+
+    /// Embed the completed incident into the knowledge store via the learning
+    /// loop (Phase 3, ADR-016). Best-effort, opt-in. This is the read-only
+    /// investigation path, so the outcome classifies as `Inconclusive` (no
+    /// remediation was executed here); the remediation pipeline records real
+    /// success/failure outcomes separately.
+    async fn record_incident(
+        &self,
+        report: &InvestigationReport,
+        alert: &AlertInfo,
+        rca_root_cause: Option<String>,
+    ) {
+        let Some(learning) = self.learning.as_ref() else {
+            return;
+        };
+        let record = sre_intelligence::IncidentRecord {
+            investigation_id: report.investigation_id.clone(),
+            affected_resource: report.affected_resource.clone(),
+            trigger: report.trigger.clone(),
+            severity: alert.severity.to_string(),
+            root_cause: rca_root_cause.unwrap_or_else(|| report.summary.clone()),
+            summary: report.summary.clone(),
+            finding_categories: finding_category_names(&report.findings),
+            remediation: None,
+            outcome: None,
+            recorded_at: Some(report.completed_at.to_rfc3339()),
+        };
+        if let Err(e) = learning
+            .record_outcome(record, sre_intelligence::OutcomeSignals::default())
+            .await
+        {
+            warn!(error = %e, "Failed to embed incident into knowledge store");
+        }
     }
 
     /// Run the gated-remediation pipeline for a completed investigation
@@ -462,9 +570,18 @@ impl Orchestrator {
 
         let mut report = workflow.generate_report();
 
+        // Phase 3 (ADR-016): retrieve similar past incidents for RAG grounding.
+        // Only worth doing when a reasoning engine will consume them; best-effort.
+        let related_incidents = if self.reasoning.is_some() {
+            self.retrieve_related(&report, &alert).await
+        } else {
+            Vec::new()
+        };
+
         // Phase 3 (ADR-015): enrich the report with an LLM-synthesized RCA when a
         // reasoning engine is configured. Best-effort — a failure keeps the
         // rule-based summary and never fails the investigation.
+        let mut rca_root_cause: Option<String> = None;
         if let Some(engine) = self.reasoning.as_ref() {
             let input = sre_intelligence::ReasoningInput {
                 investigation_id: report.investigation_id.clone(),
@@ -474,7 +591,7 @@ impl Orchestrator {
                 findings: report.findings.clone(),
                 agent_summary: report.summary.clone(),
                 overall_confidence: report.overall_confidence,
-                related_incidents: Vec::new(),
+                related_incidents,
             };
             match engine.synthesize(&input).await {
                 Ok(rca) => {
@@ -498,12 +615,17 @@ impl Orchestrator {
                         rca.narrative,
                         report.summary,
                     );
+                    rca_root_cause = Some(rca.root_cause);
                 }
                 Err(e) => {
                     warn!(error = %e, "LLM RCA synthesis failed — keeping rule-based summary")
                 }
             }
         }
+
+        // Phase 3 (ADR-016): embed the completed incident into the knowledge
+        // store via the learning loop, so future investigations retrieve it.
+        self.record_incident(&report, &alert, rca_root_cause).await;
 
         let _ = self.store.store_report(&correlation_id, &report).await;
 
