@@ -22,6 +22,8 @@ pub struct PlatformConfig {
     pub reasoning: ReasoningConfig,
     #[serde(default)]
     pub knowledge: KnowledgeConfig,
+    #[serde(default)]
+    pub chatops: ChatOpsConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -588,6 +590,33 @@ impl Default for KnowledgeConfig {
     }
 }
 
+/// ChatOps conversational interface (Phase 3, ADR-018). Disabled by default.
+/// When enabled, a Slack slash-command endpoint (`POST /api/v1/chatops`) lets
+/// operators trigger investigations and query their status from chat.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ChatOpsConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    /// Env var holding the Slack signing secret used to verify slash-command
+    /// requests. Request-signature verification is a forward step; when unset the
+    /// endpoint relies on ingress isolation (like the Phase 1 webhook).
+    #[serde(default = "default_chatops_signing_secret_env")]
+    pub signing_secret_env: Option<String>,
+}
+
+fn default_chatops_signing_secret_env() -> Option<String> {
+    Some("SLACK_SIGNING_SECRET".to_string())
+}
+
+impl Default for ChatOpsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            signing_secret_env: default_chatops_signing_secret_env(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ObservabilityConfig {
     #[serde(default)]
@@ -738,6 +767,7 @@ impl Default for PlatformConfig {
             remediation: RemediationConfig::default(),
             reasoning: ReasoningConfig::default(),
             knowledge: KnowledgeConfig::default(),
+            chatops: ChatOpsConfig::default(),
         }
     }
 }

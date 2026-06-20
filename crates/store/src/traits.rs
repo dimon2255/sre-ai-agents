@@ -29,6 +29,13 @@ pub trait WorkflowStore: Send + Sync {
     /// Get a workflow by ID
     async fn get_workflow(&self, workflow_id: &Uuid) -> Result<Option<WorkflowRecord>, StoreError>;
 
+    /// Fetch the most recent workflow for an alert id (ChatOps status lookup by
+    /// the tracking reference returned when an investigation is triggered).
+    async fn get_workflow_by_alert_id(
+        &self,
+        alert_id: &str,
+    ) -> Result<Option<WorkflowRecord>, StoreError>;
+
     /// Get active (non-terminal) workflows
     async fn get_active_workflows(&self) -> Result<Vec<WorkflowRecord>, StoreError>;
 

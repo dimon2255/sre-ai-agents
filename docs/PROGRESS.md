@@ -212,7 +212,7 @@
 | Progressive trust model | Done | `sre-gates::trust::TrustModel` (ADR-017). Per-category floor ratchets 0.95→0.93→0.90→0.87→0.85 at 10/25/50/100 consecutive successes; one failure resets + cools down (15/30/60 min by tier), suspending auto-remediation (gate routes to human approval) until it expires. Pure policy, injected clock (deterministic). The executor feeds each execution outcome back (`Executed`→success; over-scope `RolledBack`/ARM `Failed`→failure). 9 unit tests + 4 executor-integration tests. |
 | Agent SDK (published crate for custom agents) | Not Started | |
 | Multi-workspace investigation | Not Started | |
-| ChatOps interface (Slack/Teams conversational) | Not Started | |
+| ChatOps interface (Slack/Teams conversational) | Done | ADR-018. New transport-agnostic `sre-chatops` crate: pure `parse_command` grammar (`investigate <resource> [severity]`, `status <id>`, `help`; verb/severity aliases) + `ChatOpsHandler` over a `ChatBackend` trait → Slack-style mrkdwn replies. Webhook server binds it: `POST /api/v1/chatops` (Slack slash command), `WebhookChatBackend` triggers via the same alert channel as the webhook and reads status from the store. New `WorkflowStore::get_workflow_by_alert_id` lets the ChatOps tracking ref round-trip `investigate`→`status`. Config-gated (`[chatops]`, default off); Slack request-signing is the documented forward step. 13 crate unit tests + 1 store test. |
 
 ### Exit Criteria
 
@@ -248,6 +248,7 @@
 | [ADR-015](adr/015-llm-reasoning-engine.md) | LLM Reasoning Engine | Accepted (2026-06-20) |
 | [ADR-016](adr/016-knowledge-store-learning-loop.md) | Knowledge Store + Learning Loop | Accepted (2026-06-20) |
 | [ADR-017](adr/017-progressive-trust-auto-remediation.md) | Progressive Trust + Auto-Remediation | Accepted (2026-06-20) |
+| [ADR-018](adr/018-chatops-interface.md) | ChatOps Interface | Accepted (2026-06-20) |
 
 ---
 

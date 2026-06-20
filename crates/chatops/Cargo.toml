@@ -1,0 +1,14 @@
+[package]
+name = "sre-chatops"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+sre-common = { path = "../common" }
+async-trait.workspace = true
+serde.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true }

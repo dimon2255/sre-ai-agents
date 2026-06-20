@@ -488,11 +488,22 @@ async fn run_server(config: PlatformConfig) -> anyhow::Result<()> {
         }
     };
 
+    // ChatOps slash-command endpoint (Phase 3, ADR-018). Opt-in; lets operators
+    // trigger investigations and query status from Slack/Teams. Mounted only when
+    // enabled; relies on ingress isolation (Slack request signing is a forward step).
+    let chatops_routes = if config.chatops.enabled {
+        info!("ChatOps endpoint enabled (ADR-018): POST /api/v1/chatops");
+        Router::new().route("/api/v1/chatops", post(webhook::handle_chatops))
+    } else {
+        Router::new()
+    };
+
     let app = Router::new()
         .route("/startupz", get(webhook::startupz))
         .route("/healthz", get(webhook::healthz))
         .route("/readyz", get(webhook::readyz))
         .merge(alert_routes)
+        .merge(chatops_routes)
         .layer(DefaultBodyLimit::max(64 * 1024)) // 64 KB — Azure alert payloads are typically 2-5 KB
         .with_state(app_state);
 

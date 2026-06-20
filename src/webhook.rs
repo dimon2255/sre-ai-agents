@@ -2,16 +2,23 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use async_trait::async_trait;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::Json;
+use axum::{Form, Json};
+use chrono::Utc;
 use tokio::sync::{mpsc, Semaphore};
 use tracing::{info, warn};
+use uuid::Uuid;
 
 use sre_azure::models::AzureCommonAlert;
+use sre_chatops::{ChatBackend, ChatOpsHandler, InvestigationStatus};
 use sre_common::config::PlatformConfig;
-use sre_common::messages::AlertInfo;
+use sre_common::findings::InvestigationReport;
+use sre_common::messages::{AlertInfo, AlertSeverity};
+use sre_store::models::WorkflowRecord;
+use sre_store::traits::WorkflowStore;
 use sre_store::PgStore;
 
 use crate::ingest::nats::NatsIngestorState;
@@ -189,6 +196,101 @@ pub async fn readyz(State(state): State<AppState>) -> impl IntoResponse {
         )
             .into_response()
     }
+}
+
+// ─── ChatOps (Phase 3, ADR-018) ───
+
+/// Slack slash-command form payload. Slack POSTs `application/x-www-form-urlencoded`
+/// with the user's text in the `text` field (the `/command` itself is separate).
+#[derive(Debug, serde::Deserialize)]
+pub struct ChatOpsForm {
+    #[serde(default)]
+    pub text: String,
+}
+
+/// [`ChatBackend`] over the platform: triggers via the alert channel (same path
+/// as the webhook — fire-and-forget into the orchestrator loop) and reads status
+/// from the store. Built per request from [`AppState`].
+struct WebhookChatBackend {
+    alert_tx: mpsc::Sender<AlertInfo>,
+    store: Arc<PgStore>,
+}
+
+#[async_trait]
+impl ChatBackend for WebhookChatBackend {
+    async fn trigger_investigation(
+        &self,
+        resource: &str,
+        severity: AlertSeverity,
+    ) -> Result<String, String> {
+        let alert_id = format!("chatops-{}", Uuid::new_v4());
+        let alert = AlertInfo {
+            alert_id: alert_id.clone(),
+            alert_rule: format!("ChatOps investigate: {resource}"),
+            severity,
+            signal_type: "ChatOps".to_string(),
+            monitor_condition: "Fired".to_string(),
+            affected_resource: resource.to_string(),
+            fired_at: Utc::now(),
+            description: Some("Investigation triggered via ChatOps".to_string()),
+            raw_context: None,
+        };
+        self.alert_tx.try_send(alert).map_err(|e| match e {
+            mpsc::error::TrySendError::Full(_) => {
+                "alert queue is full — try again shortly".to_string()
+            }
+            mpsc::error::TrySendError::Closed(_) => "the platform is shutting down".to_string(),
+        })?;
+        Ok(alert_id)
+    }
+
+    async fn get_status(
+        &self,
+        investigation_id: &str,
+    ) -> Result<Option<InvestigationStatus>, String> {
+        // Accept either a workflow UUID (from notifications/logs) or a ChatOps
+        // tracking reference (the alert id returned by `trigger`).
+        let record = if let Ok(uuid) = Uuid::parse_str(investigation_id) {
+            self.store.get_workflow(&uuid).await
+        } else {
+            self.store.get_workflow_by_alert_id(investigation_id).await
+        }
+        .map_err(|e| e.to_string())?;
+        Ok(record.map(record_to_status))
+    }
+}
+
+/// Map a stored workflow into the ChatOps status view, pulling the summary +
+/// confidence out of the persisted report when the investigation has finished.
+fn record_to_status(record: WorkflowRecord) -> InvestigationStatus {
+    let report: Option<InvestigationReport> = record
+        .report_json
+        .as_deref()
+        .and_then(|j| serde_json::from_str(j).ok());
+    InvestigationStatus {
+        id: record.id.to_string(),
+        state: record.state.to_string(),
+        affected_resource: record.affected_resource,
+        severity: record.severity.as_label().to_string(),
+        summary: report.as_ref().map(|r| r.summary.clone()),
+        confidence: report.as_ref().map(|r| r.overall_confidence),
+        escalated: report.as_ref().map(|r| r.escalated).unwrap_or(false),
+    }
+}
+
+/// ChatOps slash-command endpoint: `POST /api/v1/chatops`. Parses the command,
+/// dispatches it (trigger an investigation / query status), and returns a Slack
+/// slash-command JSON response.
+pub async fn handle_chatops(
+    State(state): State<AppState>,
+    Form(form): Form<ChatOpsForm>,
+) -> impl IntoResponse {
+    let backend = Arc::new(WebhookChatBackend {
+        alert_tx: state.alert_tx.clone(),
+        store: state.store.clone(),
+    });
+    let response = ChatOpsHandler::new(backend).handle(&form.text).await;
+    Json(response)
 }
 
 pub fn now_epoch_ms() -> u64 {

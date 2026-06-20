@@ -145,3 +145,13 @@ database_url = "postgres://postgres:password@localhost:5432/sre_agents"
 # vector_dim = 256
 # top_k = 3
 # api_key_env = "QDRANT_API_KEY"
+
+# ChatOps conversational interface (Phase 3, ADR-018). Disabled by default. When
+# enabled, exposes POST /api/v1/chatops for Slack slash commands so operators can
+# trigger investigations ("investigate <resource> [severity]") and query status
+# ("status <id>") from chat. Slack request-signature verification is a forward
+# step; until then the endpoint relies on ingress isolation (do not expose it
+# publicly without the signing check).
+# [chatops]
+# enabled = false
+# signing_secret_env = "SLACK_SIGNING_SECRET"

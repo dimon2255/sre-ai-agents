@@ -150,6 +150,26 @@ impl WorkflowStore for PgStore {
         row.map(|r| r.into_record()).transpose()
     }
 
+    async fn get_workflow_by_alert_id(
+        &self,
+        alert_id: &str,
+    ) -> Result<Option<WorkflowRecord>, StoreError> {
+        let row = sqlx::query_as::<_, WorkflowRow>(
+            r#"
+            SELECT id, state::text AS state, alert_id, affected_resource,
+                   severity::text AS severity, created_at, updated_at, report_json
+            FROM workflows WHERE alert_id = $1
+            ORDER BY created_at DESC LIMIT 1
+            "#,
+        )
+        .bind(alert_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| StoreError::Database(e.to_string()))?;
+
+        row.map(|r| r.into_record()).transpose()
+    }
+
     async fn get_active_workflows(&self) -> Result<Vec<WorkflowRecord>, StoreError> {
         let rows = sqlx::query_as::<_, WorkflowRow>(
             r#"
