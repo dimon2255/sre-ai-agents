@@ -3403,6 +3403,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "sre-gates"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "sre-common",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "sre-notify"
 version = "0.1.0"
 dependencies = [

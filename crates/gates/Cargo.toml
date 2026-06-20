@@ -1,0 +1,15 @@
+[package]
+name = "sre-gates"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+sre-common = { path = "../common" }
+chrono.workspace = true
+uuid.workspace = true
+serde.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

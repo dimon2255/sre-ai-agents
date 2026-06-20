@@ -13,6 +13,7 @@ pub use messages::{
     InboundMessage, InvestigationContext, MessageTarget,
 };
 pub use remediation::{
-    ArmWriteRequest, RemediationCategory, RemediationContext, RemediationProposal,
-    RemediationProposalSet, ResourceId, RiskLevel, RollbackStrategy,
+    ArmWriteRequest, RemediationCategory, RemediationContext, RemediationEvent,
+    RemediationEventKind, RemediationProposal, RemediationProposalSet, ResourceId, RiskLevel,
+    RollbackStrategy,
 };
