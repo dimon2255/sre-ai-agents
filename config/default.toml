@@ -93,3 +93,10 @@ database_url = "postgres://postgres:password@localhost:5432/sre_agents"
 # webhook_url = "https://outlook.office.com/webhook/XXX"
 # [notifications.pagerduty]
 # routing_key = "R0UT1NGK3Y"
+
+# gRPC API (Phase 2b). External systems can trigger and query investigations.
+# Disabled by default; runs on its own port (separate from the webhook).
+# [grpc]
+# enabled = false
+# listen_addr = "0.0.0.0"
+# listen_port = 50051

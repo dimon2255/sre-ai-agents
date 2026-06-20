@@ -29,6 +29,7 @@ use crate::middleware::hmac::{self as hmac_auth, HmacAuth};
 use crate::webhook::AppState;
 use tokio_util::sync::CancellationToken;
 
+mod grpc;
 mod ingest;
 mod middleware;
 mod webhook;
@@ -388,6 +389,9 @@ async fn run_server(config: PlatformConfig) -> anyhow::Result<()> {
         ingest::nats::NatsIngestorState::Disabled as u8,
     ));
 
+    // Clone the store for the gRPC service before it is moved into AppState.
+    let grpc_store = store.clone();
+
     let app_state = AppState {
         alert_tx,
         store,
@@ -480,6 +484,32 @@ async fn run_server(config: PlatformConfig) -> anyhow::Result<()> {
         // Drop the unused clone so the channel sender count stays accurate.
         drop(nats_alert_tx);
         info!("NATS ingestion disabled (nats.enabled=false) — webhook is the only ingestion path");
+        None
+    };
+
+    // gRPC API server (Phase 2b). Runs on its own port, shares the same
+    // orchestrator + store, and is cancelled on shutdown via the shared token.
+    let grpc_join = if config.grpc.enabled {
+        let addr: std::net::SocketAddr =
+            format!("{}:{}", config.grpc.listen_addr, config.grpc.listen_port)
+                .parse()
+                .context("invalid gRPC listen address")?;
+        let service = grpc::InvestigationGrpc::new(orchestrator.clone(), grpc_store).into_server();
+        let grpc_cancel = cancel.clone();
+        info!(grpc_addr = %addr, "gRPC server listening");
+        Some(tokio::spawn(async move {
+            if let Err(e) = tonic::transport::Server::builder()
+                .add_service(service)
+                .serve_with_shutdown(addr, async move {
+                    grpc_cancel.cancelled().await;
+                })
+                .await
+            {
+                error!(error = %e, "gRPC server error");
+            }
+        }))
+    } else {
+        info!("gRPC API disabled (grpc.enabled=false)");
         None
     };
 
@@ -605,10 +635,18 @@ async fn run_server(config: PlatformConfig) -> anyhow::Result<()> {
             Err(_) => info!("Investigation semaphore closed during drain"),
         }
     };
+    let grpc_drain = async {
+        if let Some(join) = grpc_join {
+            match join.await {
+                Ok(()) => info!("gRPC server stopped cleanly"),
+                Err(e) => warn!(error = %e, "gRPC server task panicked during drain"),
+            }
+        }
+    };
 
     match tokio::time::timeout(
         Duration::from_secs(25),
-        futures_util::future::join(nats_drain, investigations_drain),
+        futures_util::future::join3(nats_drain, investigations_drain, grpc_drain),
     )
     .await
     {

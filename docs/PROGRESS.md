@@ -146,14 +146,14 @@
 | 2 | Horizontal scaling (multi-replica) | Not Started | Requires NATS work distribution (post-PR-3) |
 | 3 | Notification Engine (Slack, Teams, PagerDuty) | Done | New `sre-notify` crate. `Notifier` trait + `MockNotifier` (dev/CI) + real Slack (mrkdwn), Teams (MessageCard), PagerDuty (Events API v2) bindings. `NotificationEngine` decides via a severity threshold + escalation policy and fans out to every configured provider concurrently (best-effort — one broken destination never blocks the others). Wired into the orchestrator dispatch loop; config-gated (`[notifications]`, provider secrets via env). |
 | 4 | InboundMessage serialization migration | Deferred | Not needed for ingestion-only NATS. Required only when **agent replies** cross NATS (Phase 3 concern). ADR-013 explicitly keeps `InboundMessage.reply_tx` as `mpsc::Sender` for now. |
-| 5 | gRPC API (external integration surface) | Not Started | tonic-based API for external systems |
+| 5 | gRPC API (external integration surface) | Done | tonic 0.14 server (`proto/sre.proto`, `build.rs` via `tonic-prost-build`, `src/grpc.rs`). `InvestigationService`: `TriggerInvestigation` (synchronous — runs the orchestrator, returns the full report) + `GetInvestigation` (store lookup by workflow UUID). Config-gated (`[grpc]`, own port 50051), graceful shutdown via the shared cancel token. CI jobs + Dockerfile install `protoc`; Dockerfile copies `build.rs` + `proto/`. |
 
 #### Phase 2b Exit Criteria
 
 - [ ] NATS enables message replay for debugging
 - [ ] Platform runs multi-replica behind ACA scaling
 - [x] Notification engine delivers to Slack/Teams/PagerDuty
-- [ ] gRPC API allows external systems to trigger and query investigations
+- [x] gRPC API allows external systems to trigger and query investigations
 - [ ] Load test re-validated: 50 concurrent investigations after NATS migration
 
 ### Phase 2c — Gated Remediation (4-5 weeks)
