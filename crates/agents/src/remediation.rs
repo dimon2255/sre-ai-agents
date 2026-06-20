@@ -37,8 +37,9 @@ impl RemediationAgent {
 
     /// Map findings to proposals via the playbook, keeping the highest-confidence
     /// proposal per remediation category (so two error findings don't both
-    /// propose a restart).
-    fn propose(&self, ctx: &RemediationContext) -> Vec<RemediationProposal> {
+    /// propose a restart). Public so the orchestrator's remediation pipeline can
+    /// call it directly without the message round-trip.
+    pub fn propose(&self, ctx: &RemediationContext) -> Vec<RemediationProposal> {
         let mut by_category: HashMap<RemediationCategory, RemediationProposal> = HashMap::new();
         for finding in &ctx.findings {
             if let Some(proposal) = self.proposal_for_finding(finding, ctx) {

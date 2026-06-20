@@ -100,3 +100,18 @@ database_url = "postgres://postgres:password@localhost:5432/sre_agents"
 # enabled = false
 # listen_addr = "0.0.0.0"
 # listen_port = 50051
+
+# Gated remediation pipeline (Phase 2c, ADR-009). Disabled by default — the
+# platform proposes + executes remediations only when explicitly enabled. With
+# auth_mode=mock, ARM writes go to a mock client (no real Azure mutation).
+# IMPORTANT (ADR-011): do NOT enable in staging/prod until the separate
+# remediation managed identity is provisioned — until then the write path
+# reuses the read identity, which violates ADR-011.
+# [remediation]
+# enabled = false
+# subscription_id = ""               # falls back to azure.subscription_id
+# kill_switch = false
+# per_subscription_hourly_limit = 5
+# per_resource_type_hourly_limit = 3
+# auto_approve_min_confidence = 0.95
+# business_hours_only = false

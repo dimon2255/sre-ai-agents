@@ -16,6 +16,8 @@ pub struct PlatformConfig {
     pub notifications: NotificationConfig,
     #[serde(default)]
     pub grpc: GrpcConfig,
+    #[serde(default)]
+    pub remediation: RemediationConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -403,6 +405,56 @@ impl Default for GrpcConfig {
     }
 }
 
+/// Gated-remediation pipeline configuration (Phase 2c, ADR-009). Disabled by
+/// default. When enabled, the orchestrator runs propose → gate → execute after
+/// each investigation. Mapped to the `sre-gates` `GuardrailConfig` in `main.rs`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RemediationConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    /// Subscription id used to scope the per-subscription auto-approve rate
+    /// limit (falls back to `azure.subscription_id` when empty).
+    #[serde(default)]
+    pub subscription_id: String,
+    /// Global kill switch — when true, nothing auto-approves.
+    #[serde(default)]
+    pub kill_switch: bool,
+    #[serde(default = "default_rem_sub_limit")]
+    pub per_subscription_hourly_limit: usize,
+    #[serde(default = "default_rem_rtype_limit")]
+    pub per_resource_type_hourly_limit: usize,
+    #[serde(default = "default_rem_min_confidence")]
+    pub auto_approve_min_confidence: f64,
+    #[serde(default)]
+    pub business_hours_only: bool,
+}
+
+fn default_rem_sub_limit() -> usize {
+    5
+}
+
+fn default_rem_rtype_limit() -> usize {
+    3
+}
+
+fn default_rem_min_confidence() -> f64 {
+    0.95
+}
+
+impl Default for RemediationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            subscription_id: String::new(),
+            kill_switch: false,
+            per_subscription_hourly_limit: default_rem_sub_limit(),
+            per_resource_type_hourly_limit: default_rem_rtype_limit(),
+            auto_approve_min_confidence: default_rem_min_confidence(),
+            business_hours_only: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ObservabilityConfig {
     #[serde(default)]
@@ -550,6 +602,7 @@ impl Default for PlatformConfig {
             nats: NatsConfig::default(),
             notifications: NotificationConfig::default(),
             grpc: GrpcConfig::default(),
+            remediation: RemediationConfig::default(),
         }
     }
 }

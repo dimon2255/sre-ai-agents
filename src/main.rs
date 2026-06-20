@@ -22,7 +22,7 @@ use sre_azure::auth::AzureCredentialProvider;
 use sre_azure::query_client::AzureQueryClient;
 use sre_common::config::{ObservabilityConfig, PlatformConfig};
 use sre_common::messages::*;
-use sre_orchestrator::{AgentRouter, Orchestrator};
+use sre_orchestrator::{AgentRouter, Orchestrator, RemediationPipeline};
 use sre_store::PgStore;
 
 use crate::middleware::hmac::{self as hmac_auth, HmacAuth};
@@ -355,7 +355,37 @@ async fn bootstrap(
         );
     }
 
-    let orchestrator = Orchestrator::new(config.clone(), router, store.clone(), event_log);
+    let mut orchestrator = Orchestrator::new(config.clone(), router, store.clone(), event_log);
+
+    // Gated-remediation pipeline (Phase 2c, ADR-009). Opt-in; when enabled the
+    // orchestrator runs propose -> gate -> execute after each investigation.
+    if config.remediation.enabled {
+        let arm: Arc<dyn sre_azure::ArmWriteClient> = match config.azure.auth_mode.as_str() {
+            "mock" => {
+                info!("Remediation using mock ARM write client (auth_mode=mock)");
+                Arc::new(sre_azure::MockArmClient::new())
+            }
+            _ => Arc::new(sre_azure::AzureArmClient::new(credential.clone())),
+        };
+        let guardrails = sre_gates::GuardrailConfig {
+            kill_switch: config.remediation.kill_switch,
+            per_subscription_hourly_limit: config.remediation.per_subscription_hourly_limit,
+            per_resource_type_hourly_limit: config.remediation.per_resource_type_hourly_limit,
+            auto_approve_min_confidence: config.remediation.auto_approve_min_confidence,
+            max_auto_approve_blast_radius: 1,
+            business_hours_only: config.remediation.business_hours_only,
+        };
+        let gate = Arc::new(sre_gates::ApprovalGate::new(guardrails));
+        let subscription_id = config
+            .azure
+            .subscription_id
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| config.remediation.subscription_id.clone());
+        let pipeline = RemediationPipeline::new(arm, gate, subscription_id);
+        orchestrator = orchestrator.with_remediation(pipeline);
+        info!("Gated remediation pipeline enabled (ADR-009)");
+    }
 
     Ok((orchestrator, join_handles, store))
 }
@@ -572,6 +602,10 @@ async fn run_server(config: PlatformConfig) -> anyhow::Result<()> {
                             if delivered > 0 {
                                 info!(alert_id = %alert_id, delivered, "Notifications delivered");
                             }
+                        }
+                        let remediated = orch.remediate(&report).await;
+                        if remediated > 0 {
+                            info!(alert_id = %alert_id, remediated, "Remediation proposals processed");
                         }
                     }
                     Err(e) => {

@@ -158,21 +158,21 @@
 
 ### Phase 2c — Gated Remediation (4-5 weeks)
 
-**Status**: In Progress (started 2026-06-20)
+**Status**: Functionally complete (2026-06-20) — mock-capable end-to-end (propose → gate → execute → post-mortem verify → rollback → audit). Forward steps: Slack interactive approval UI, the remediation MI Terraform (ADR-011), and the `workflow_state` ENUM migration (ADR-009 §7).
 
 | # | Component | Status | Notes |
 |---|-----------|--------|-------|
 | 1 | RemediationAgent (proposals, risk levels, rollback plans) | Done (propose-only) | `crates/agents/src/remediation.rs` — playbook maps findings → `RemediationProposal`s: ErrorSpike→RestartWorkload (LowRisk), ResourceExhaustion/LatencyDegradation→ScaleCompute (LowRisk), DeploymentCorrelation→revert revision (HighRisk). Each proposal carries scope_resources, ArmWriteRequest, RollbackStrategy, rationale, evidence. Dedups by category (highest confidence wins). No execution — proposes only; the gate + executor (next PR) decide and run. `AgentType::Remediation` + `AgentPayload::RemediationRequest`/`RemediationProposed`. |
 | 2 | Approval Gate — separate `sre-gates` crate | Done | New `sre-gates` crate (pure policy, `sre-common` only). `ApprovalGate::evaluate` implements the ADR-009 §3 auto-approve policy: ReadOnly→auto; LowRisk→auto iff confidence ≥ 0.95 & blast-radius ≤ 1 & guardrails OK, else 1 approval; HighRisk→1 approval; Destructive→2 **distinct** approvals. Re-derives risk via `enforced_risk()` so a mis-tagged destructive action can't sneak through (tested). `approve()` tallies distinct approvers (dual-approval); `acquire_locks()`/`release()` for the executor. Slack-interactive approval UI is the forward step. |
 | 3 | Remediation guardrails (rate limits, blast radius) | Done | ADR-009 §4: global kill switch, per-subscription + per-resource-type hourly rate limits (sliding window, **injected clock** for deterministic tests), blast-radius cap (1 for auto), per-resource mutual-exclusion locks, optional business-hours window. Auto-approve **atomically reserves** rate budget + locks to avoid TOCTOU races. 16 unit tests cover the full decision matrix. |
-| 4 | ARM REST API write operations | Not Started | Scoped RBAC, not broad Contributor |
+| 4 | ARM REST API write operations | Done | `sre-azure::arm_write`: `ArmWriteClient` trait + `MockArmClient` (records calls; Success/OverScope/Failure modes) + `AzureArmClient` (real ARM REST via `TokenProvider`, management scope). `RemediationExecutor` (orchestrator) runs gate → execute → **post-mortem blast-radius check** (affected ⊆ declared scope, else rollback + escalate) → insert-only audit. Wired into the dispatch loop, opt-in via `[remediation]`. |
 | 5 | RiskLevel enum + auto-approve policy | In Progress | `sre-common::remediation` (ADR-009 §1-2): `RiskLevel` (ReadOnly/LowRisk/HighRisk/Destructive, ordered), `RemediationCategory` (with `is_always_destructive`/`is_blocklisted`), `RollbackStrategy`, `ArmWriteRequest`, `ResourceId`, `RemediationProposal` with `enforced_risk()` (always-destructive categories + no-rollback ⇒ Destructive, non-overridable). The auto-approve **policy** that consumes these lands in `sre-gates` (next PR). |
-| 6 | Identity separation for remediation (ADR-011) | Not Started | Separate MI from `sre-agents-identity` |
+| 6 | Identity separation for remediation (ADR-011) | Done (paper + seam) | ADR-011 Accepted. `AzureArmClient` takes its **own** `TokenProvider`, independent of the read client — a one-line wiring change to a separate remediation MI once provisioned. The Terraform MI + scoped per-resource-type RBAC roles are the documented infra forward step; remediation stays disabled by default until then. |
 
 #### Phase 2c Exit Criteria
 
 - [ ] RemediationAgent proposes actions with risk levels and rollback plans
-- [ ] Approval gate works end-to-end (Slack -> approve -> execute -> verify)
+- [x] Approval gate works end-to-end (auto-approve path: gate -> execute -> post-mortem verify -> rollback-on-overscope; Slack human-approval UI is the forward step)
 - [x] Rate limiting prevents runaway remediation (sre-gates guardrails)
 - [x] Destructive actions require dual approval (sre-gates, enforced via `enforced_risk()`)
 - [ ] Platform survives agent crashes gracefully
@@ -241,7 +241,7 @@
 | [ADR-008](adr/008-webhook-authentication.md) | Webhook Authentication (HMAC-SHA256) | Accepted (2026-04-21) |
 | [ADR-009](adr/009-remediation-safety-model.md) | Remediation Safety Model | Accepted (2026-06-20) |
 | ADR-010 | NATS JetStream Design | Superseded by ADR-013 |
-| ADR-011 | Identity Separation for Remediation | Planned (Phase 2c) |
+| [ADR-011](adr/011-identity-separation-remediation.md) | Identity Separation for Remediation | Accepted (2026-06-20) |
 | [ADR-012](adr/012-schema-type-modernization.md) | Schema Type Modernization | Accepted (2026-04-19) |
 | [ADR-013](adr/013-nats-jetstream-ingest.md) | NATS JetStream as Parallel Ingestion Path | Accepted (2026-05-18; PR-2/3 2026-06-20) |
 | [ADR-014](adr/014-horizontal-scaling-model.md) | Horizontal Scaling Model (Multi-Replica) | Accepted (2026-06-20) |

@@ -7,6 +7,8 @@ edition.workspace = true
 sre-common = { path = "../common" }
 sre-agents = { path = "../agents" }
 sre-store = { path = "../store" }
+sre-azure = { path = "../azure" }
+sre-gates = { path = "../gates" }
 tokio.workspace = true
 async-trait.workspace = true
 tracing.workspace = true
