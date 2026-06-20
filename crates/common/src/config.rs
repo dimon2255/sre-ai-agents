@@ -431,6 +431,13 @@ pub struct RemediationConfig {
     pub auto_approve_min_confidence: f64,
     #[serde(default)]
     pub business_hours_only: bool,
+    /// Enable the Phase 3 progressive-trust model (ADR-017). When true, trusted
+    /// remediation categories earn a lower auto-approve confidence floor over
+    /// consecutive successes (0.95 → 0.85), and a failure resets + cools down the
+    /// category. When false, the fixed `auto_approve_min_confidence` floor applies
+    /// (Phase 2c behavior).
+    #[serde(default)]
+    pub progressive_trust: bool,
 }
 
 fn default_rem_sub_limit() -> usize {
@@ -455,6 +462,7 @@ impl Default for RemediationConfig {
             per_resource_type_hourly_limit: default_rem_rtype_limit(),
             auto_approve_min_confidence: default_rem_min_confidence(),
             business_hours_only: false,
+            progressive_trust: false,
         }
     }
 }

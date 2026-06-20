@@ -382,7 +382,14 @@ async fn bootstrap(
             .clone()
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| config.remediation.subscription_id.clone());
-        let pipeline = RemediationPipeline::new(arm, gate, subscription_id);
+        let mut pipeline = RemediationPipeline::new(arm, gate, subscription_id);
+        // Progressive-trust auto-remediation (Phase 3, ADR-017). Opt-in on top of
+        // remediation: trusted categories earn a lower auto-approve floor over
+        // consecutive successes; a failure resets + cools down the category.
+        if config.remediation.progressive_trust {
+            pipeline = pipeline.with_trust(Arc::new(sre_gates::TrustModel::with_defaults()));
+            info!("Progressive-trust auto-remediation enabled (ADR-017)");
+        }
         orchestrator = orchestrator.with_remediation(pipeline);
         info!("Gated remediation pipeline enabled (ADR-009)");
     }

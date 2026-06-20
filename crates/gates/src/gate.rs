@@ -51,11 +51,38 @@ impl ApprovalGate {
     /// per-subscription + per-resource-type rate-limit budget and acquires the
     /// resource locks, so concurrent auto-approvals can't race past the limits.
     /// Call [`ApprovalGate::release`] after execution/rollback.
+    ///
+    /// Uses the configured `auto_approve_min_confidence` as the LowRisk floor.
+    /// For a trust-adjusted floor (Phase 3 progressive trust, ADR-017) use
+    /// [`ApprovalGate::evaluate_with_confidence_floor`].
     pub fn evaluate(
         &self,
         proposal: &RemediationProposal,
         subscription_id: &str,
         now: DateTime<Utc>,
+    ) -> GateDecision {
+        self.evaluate_with_confidence_floor(
+            proposal,
+            subscription_id,
+            now,
+            self.config.auto_approve_min_confidence,
+        )
+    }
+
+    /// Like [`ApprovalGate::evaluate`], but with an explicit LowRisk auto-approve
+    /// confidence floor. The progressive-trust model (ADR-017) passes an earned
+    /// floor (down to 0.85) for trusted categories, or an unreachable floor
+    /// (> 1.0) to suspend auto-approval during a cooldown — which routes the
+    /// proposal to human approval through the gate's normal LowRisk path. All
+    /// other policy (risk routing, blocklist, kill switch, blast radius, rate
+    /// limits, locks) is unchanged: trust only modulates the LowRisk confidence
+    /// bar; HighRisk/Destructive are never auto-approved.
+    pub fn evaluate_with_confidence_floor(
+        &self,
+        proposal: &RemediationProposal,
+        subscription_id: &str,
+        now: DateTime<Utc>,
+        min_confidence: f64,
     ) -> GateDecision {
         // Risk is re-derived here — the gate never trusts a self-reported value
         // lower than the enforced one (ADR-009 attack-surface mitigation).
@@ -80,10 +107,10 @@ impl ApprovalGate {
             RiskLevel::ReadOnly => {} // proceed to guardrail reservation
             RiskLevel::LowRisk => {
                 let mut reasons = Vec::new();
-                if proposal.confidence < self.config.auto_approve_min_confidence {
+                if proposal.confidence < min_confidence {
                     reasons.push(format!(
                         "confidence {:.2} < required {:.2}",
-                        proposal.confidence, self.config.auto_approve_min_confidence
+                        proposal.confidence, min_confidence
                     ));
                 }
                 if proposal.blast_radius() > self.config.max_auto_approve_blast_radius {
