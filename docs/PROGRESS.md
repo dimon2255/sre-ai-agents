@@ -143,7 +143,7 @@
 | # | Component | Status | Notes |
 |---|-----------|--------|-------|
 | 1 | NATS JetStream ingestion (ADR-013) — PR-1/2/3 | Done | Parallel ingestion path: webhook stays, NATS adds durable/replayable ingest. Boundary held at `mpsc::Sender<AlertInfo>` — orchestrator and agents untouched. **PR-1 (merged #18):** NatsConfig, `parse_and_enqueue` shared helper, `src/ingest/nats.rs` with backpressure (no-ack-until-enqueued) + `CancellationToken` graceful shutdown, `AlertDedupCache` (FIFO, in-memory), testcontainers smoke test. **PR-2 (done):** OTel metrics `nats_consumer_pending` / `nats_redeliveries_total` / `nats_dlq_total` via a global `SdkMeterProvider` (OTLP, gated by `observability.enabled`), read from per-message JetStream `Info` (zero extra round-trips) — `src/ingest/metrics.rs`. **PR-3 (done):** DLQ stream `sre-alerts-dlq` (subject `alerts.dlq.azure.poison`); poison payloads republished with `Sre-Dlq-Reason`/`Sre-Original-Subject` headers before terminate; integration test asserts poison→DLQ. |
-| 2 | Horizontal scaling (multi-replica) | Not Started | Requires NATS work distribution (post-PR-3) |
+| 2 | Horizontal scaling (multi-replica) | Done | ADR-014. The platform is already multi-replica-safe: stateless replicas, shared NATS durable consumer distributes work, the `workflows.alert_id` UNIQUE constraint is the authoritative cross-replica dedup gate, per-replica drain on SIGTERM (25s within ACA's 30s grace). Infra change: explicit ACA `http_scale_rule` (concurrent_requests=20), `max_replicas` 3→5; prod should set `min_replicas=2`. NATS-pending KEDA scaler (using the ADR-013 PR-2 `nats_consumer_pending` metric) is the documented forward step. |
 | 3 | Notification Engine (Slack, Teams, PagerDuty) | Done | New `sre-notify` crate. `Notifier` trait + `MockNotifier` (dev/CI) + real Slack (mrkdwn), Teams (MessageCard), PagerDuty (Events API v2) bindings. `NotificationEngine` decides via a severity threshold + escalation policy and fans out to every configured provider concurrently (best-effort — one broken destination never blocks the others). Wired into the orchestrator dispatch loop; config-gated (`[notifications]`, provider secrets via env). |
 | 4 | InboundMessage serialization migration | Deferred | Not needed for ingestion-only NATS. Required only when **agent replies** cross NATS (Phase 3 concern). ADR-013 explicitly keeps `InboundMessage.reply_tx` as `mpsc::Sender` for now. |
 | 5 | gRPC API (external integration surface) | Done | tonic 0.14 server (`proto/sre.proto`, `build.rs` via `tonic-prost-build`, `src/grpc.rs`). `InvestigationService`: `TriggerInvestigation` (synchronous — runs the orchestrator, returns the full report) + `GetInvestigation` (store lookup by workflow UUID). Config-gated (`[grpc]`, own port 50051), graceful shutdown via the shared cancel token. CI jobs + Dockerfile install `protoc`; Dockerfile copies `build.rs` + `proto/`. |
@@ -151,7 +151,7 @@
 #### Phase 2b Exit Criteria
 
 - [ ] NATS enables message replay for debugging
-- [ ] Platform runs multi-replica behind ACA scaling
+- [x] Platform runs multi-replica behind ACA scaling (ADR-014)
 - [x] Notification engine delivers to Slack/Teams/PagerDuty
 - [x] gRPC API allows external systems to trigger and query investigations
 - [ ] Load test re-validated: 50 concurrent investigations after NATS migration
@@ -243,7 +243,8 @@
 | ADR-010 | NATS JetStream Design | Superseded by ADR-013 |
 | ADR-011 | Identity Separation for Remediation | Planned (Phase 2c) |
 | [ADR-012](adr/012-schema-type-modernization.md) | Schema Type Modernization | Accepted (2026-04-19) |
-| [ADR-013](adr/013-nats-jetstream-ingest.md) | NATS JetStream as Parallel Ingestion Path | Proposed (2026-05-18) |
+| [ADR-013](adr/013-nats-jetstream-ingest.md) | NATS JetStream as Parallel Ingestion Path | Accepted (2026-05-18; PR-2/3 2026-06-20) |
+| [ADR-014](adr/014-horizontal-scaling-model.md) | Horizontal Scaling Model (Multi-Replica) | Accepted (2026-06-20) |
 
 ---
 
