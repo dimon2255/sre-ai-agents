@@ -179,6 +179,59 @@ pub struct RemediationProposalSet {
     pub summary: String,
 }
 
+/// Lifecycle stage of a remediation proposal, recorded as an insert-only audit
+/// event (ADR-009 §7). Every transition through the gate and executor emits one.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RemediationEventKind {
+    Proposed,
+    AutoApproved,
+    ApprovalRequested,
+    Approved,
+    Rejected,
+    Blocked,
+    Executing,
+    Executed,
+    Failed,
+    RolledBack,
+}
+
+/// An insert-only audit record for a remediation lifecycle transition (ADR-009
+/// §7). Travels in `AgentPayload::RemediationLifecycle`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemediationEvent {
+    pub proposal_id: Uuid,
+    pub investigation_id: Uuid,
+    pub kind: RemediationEventKind,
+    pub category: RemediationCategory,
+    pub risk: RiskLevel,
+    /// Who/what triggered this event: "sre-gates", "executor", "operator:<id>".
+    pub actor: String,
+    pub detail: String,
+    pub at: DateTime<Utc>,
+}
+
+impl RemediationEvent {
+    pub fn new(
+        proposal: &RemediationProposal,
+        kind: RemediationEventKind,
+        actor: impl Into<String>,
+        detail: impl Into<String>,
+        at: DateTime<Utc>,
+    ) -> Self {
+        Self {
+            proposal_id: proposal.id,
+            investigation_id: proposal.investigation_id,
+            kind,
+            category: proposal.category,
+            risk: proposal.enforced_risk(),
+            actor: actor.into(),
+            detail: detail.into(),
+            at,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

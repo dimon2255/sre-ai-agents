@@ -134,6 +134,8 @@ pub enum AgentPayload {
     RemediationRequest(crate::remediation::RemediationContext),
     /// RemediationAgent -> Orchestrator: proposed remediation actions.
     RemediationProposed(crate::remediation::RemediationProposalSet),
+    /// Gate/executor -> audit log: a remediation lifecycle event (ADR-009 §7).
+    RemediationLifecycle(crate::remediation::RemediationEvent),
 }
 
 /// Audit payload recorded when ingestion drops a duplicate alert.

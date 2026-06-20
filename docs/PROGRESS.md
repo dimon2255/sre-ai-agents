@@ -163,8 +163,8 @@
 | # | Component | Status | Notes |
 |---|-----------|--------|-------|
 | 1 | RemediationAgent (proposals, risk levels, rollback plans) | Done (propose-only) | `crates/agents/src/remediation.rs` — playbook maps findings → `RemediationProposal`s: ErrorSpike→RestartWorkload (LowRisk), ResourceExhaustion/LatencyDegradation→ScaleCompute (LowRisk), DeploymentCorrelation→revert revision (HighRisk). Each proposal carries scope_resources, ArmWriteRequest, RollbackStrategy, rationale, evidence. Dedups by category (highest confidence wins). No execution — proposes only; the gate + executor (next PR) decide and run. `AgentType::Remediation` + `AgentPayload::RemediationRequest`/`RemediationProposed`. |
-| 2 | Approval Gate — separate `sre-gates` crate | Not Started | Security boundary; Slack/Teams interactive messages |
-| 3 | Remediation guardrails (rate limits, blast radius) | Not Started | Per ADR-009 threat model |
+| 2 | Approval Gate — separate `sre-gates` crate | Done | New `sre-gates` crate (pure policy, `sre-common` only). `ApprovalGate::evaluate` implements the ADR-009 §3 auto-approve policy: ReadOnly→auto; LowRisk→auto iff confidence ≥ 0.95 & blast-radius ≤ 1 & guardrails OK, else 1 approval; HighRisk→1 approval; Destructive→2 **distinct** approvals. Re-derives risk via `enforced_risk()` so a mis-tagged destructive action can't sneak through (tested). `approve()` tallies distinct approvers (dual-approval); `acquire_locks()`/`release()` for the executor. Slack-interactive approval UI is the forward step. |
+| 3 | Remediation guardrails (rate limits, blast radius) | Done | ADR-009 §4: global kill switch, per-subscription + per-resource-type hourly rate limits (sliding window, **injected clock** for deterministic tests), blast-radius cap (1 for auto), per-resource mutual-exclusion locks, optional business-hours window. Auto-approve **atomically reserves** rate budget + locks to avoid TOCTOU races. 16 unit tests cover the full decision matrix. |
 | 4 | ARM REST API write operations | Not Started | Scoped RBAC, not broad Contributor |
 | 5 | RiskLevel enum + auto-approve policy | In Progress | `sre-common::remediation` (ADR-009 §1-2): `RiskLevel` (ReadOnly/LowRisk/HighRisk/Destructive, ordered), `RemediationCategory` (with `is_always_destructive`/`is_blocklisted`), `RollbackStrategy`, `ArmWriteRequest`, `ResourceId`, `RemediationProposal` with `enforced_risk()` (always-destructive categories + no-rollback ⇒ Destructive, non-overridable). The auto-approve **policy** that consumes these lands in `sre-gates` (next PR). |
 | 6 | Identity separation for remediation (ADR-011) | Not Started | Separate MI from `sre-agents-identity` |
@@ -173,8 +173,8 @@
 
 - [ ] RemediationAgent proposes actions with risk levels and rollback plans
 - [ ] Approval gate works end-to-end (Slack -> approve -> execute -> verify)
-- [ ] Rate limiting prevents runaway remediation
-- [ ] Destructive actions require dual approval
+- [x] Rate limiting prevents runaway remediation (sre-gates guardrails)
+- [x] Destructive actions require dual approval (sre-gates, enforced via `enforced_risk()`)
 - [ ] Platform survives agent crashes gracefully
 - [ ] Load test re-validated after remediation pipeline added
 
