@@ -4,6 +4,7 @@ members = [
     "crates/common",
     "crates/store",
     "crates/azure",
+    "crates/agent-sdk",
     "crates/agents",
     "crates/orchestrator",
     "crates/notify",
