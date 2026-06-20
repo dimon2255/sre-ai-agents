@@ -59,6 +59,8 @@ pub struct AgentsConfig {
     pub trace: TraceAgentConfig,
     #[serde(default = "default_infra_agent_config")]
     pub infra: InfraAgentConfig,
+    #[serde(default = "default_remediation_agent_config")]
+    pub remediation: RemediationAgentConfig,
 }
 
 fn default_trace_agent_config() -> TraceAgentConfig {
@@ -115,6 +117,18 @@ pub struct InfraAgentConfig {
     pub default_timespan_minutes: u32,
     /// Max rows returned per Activity Log query
     pub max_rows: u32,
+}
+
+/// RemediationAgent configuration (Phase 2c, ADR-009). Disabled by default —
+/// gated remediation is opt-in and security-sensitive.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RemediationAgentConfig {
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+fn default_remediation_agent_config() -> RemediationAgentConfig {
+    RemediationAgentConfig { enabled: false }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -519,6 +533,7 @@ impl Default for PlatformConfig {
                 },
                 trace: default_trace_agent_config(),
                 infra: default_infra_agent_config(),
+                remediation: default_remediation_agent_config(),
             },
             webhook: WebhookConfig {
                 listen_addr: "0.0.0.0".to_string(),

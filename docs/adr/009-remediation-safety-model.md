@@ -2,7 +2,11 @@
 
 ## Status
 
-Draft (2026-04-22). Target: Accepted before Phase 2c implementation begins.
+Accepted (2026-06-20). Phase 2c implementation begins under this ADR as the
+governing safety envelope. The data types land in `sre-common::remediation`
+(`RiskLevel`, `RemediationCategory`, `RollbackStrategy`, `RemediationProposal`,
+`ArmWriteRequest`, `ResourceId`); the propose-only `RemediationAgent` and the
+`sre-gates` enforcement crate follow in subsequent PRs.
 
 ## Context
 
