@@ -158,15 +158,15 @@
 
 ### Phase 2c — Gated Remediation (4-5 weeks)
 
-**Status**: Not Started
+**Status**: In Progress (started 2026-06-20)
 
 | # | Component | Status | Notes |
 |---|-----------|--------|-------|
-| 1 | RemediationAgent (proposals, risk levels, rollback plans) | Not Started | Playbook-driven |
+| 1 | RemediationAgent (proposals, risk levels, rollback plans) | Done (propose-only) | `crates/agents/src/remediation.rs` — playbook maps findings → `RemediationProposal`s: ErrorSpike→RestartWorkload (LowRisk), ResourceExhaustion/LatencyDegradation→ScaleCompute (LowRisk), DeploymentCorrelation→revert revision (HighRisk). Each proposal carries scope_resources, ArmWriteRequest, RollbackStrategy, rationale, evidence. Dedups by category (highest confidence wins). No execution — proposes only; the gate + executor (next PR) decide and run. `AgentType::Remediation` + `AgentPayload::RemediationRequest`/`RemediationProposed`. |
 | 2 | Approval Gate — separate `sre-gates` crate | Not Started | Security boundary; Slack/Teams interactive messages |
 | 3 | Remediation guardrails (rate limits, blast radius) | Not Started | Per ADR-009 threat model |
 | 4 | ARM REST API write operations | Not Started | Scoped RBAC, not broad Contributor |
-| 5 | RiskLevel enum + auto-approve policy | Not Started | ReadOnly / LowRisk / HighRisk / Destructive |
+| 5 | RiskLevel enum + auto-approve policy | In Progress | `sre-common::remediation` (ADR-009 §1-2): `RiskLevel` (ReadOnly/LowRisk/HighRisk/Destructive, ordered), `RemediationCategory` (with `is_always_destructive`/`is_blocklisted`), `RollbackStrategy`, `ArmWriteRequest`, `ResourceId`, `RemediationProposal` with `enforced_risk()` (always-destructive categories + no-rollback ⇒ Destructive, non-overridable). The auto-approve **policy** that consumes these lands in `sre-gates` (next PR). |
 | 6 | Identity separation for remediation (ADR-011) | Not Started | Separate MI from `sre-agents-identity` |
 
 #### Phase 2c Exit Criteria
@@ -239,7 +239,7 @@
 | [ADR-006](adr/006-per-investigation-reply-channels.md) | Per-Investigation Reply Channels | Accepted |
 | [ADR-007](adr/007-cicd-containerization-aca-deployment.md) | CI/CD, Containerization, ACA Deployment | Accepted |
 | [ADR-008](adr/008-webhook-authentication.md) | Webhook Authentication (HMAC-SHA256) | Accepted (2026-04-21) |
-| [ADR-009](adr/009-remediation-safety-model.md) | Remediation Safety Model | Draft (2026-04-22) |
+| [ADR-009](adr/009-remediation-safety-model.md) | Remediation Safety Model | Accepted (2026-06-20) |
 | ADR-010 | NATS JetStream Design | Superseded by ADR-013 |
 | ADR-011 | Identity Separation for Remediation | Planned (Phase 2c) |
 | [ADR-012](adr/012-schema-type-modernization.md) | Schema Type Modernization | Accepted (2026-04-19) |

@@ -25,6 +25,8 @@ pub enum AgentType {
     Trace,
     /// Infrastructure-change + resource-health (Azure Activity Log)
     Infra,
+    /// Gated remediation proposals (Phase 2c, ADR-009)
+    Remediation,
 }
 
 impl std::fmt::Display for AgentType {
@@ -35,6 +37,7 @@ impl std::fmt::Display for AgentType {
             Self::Metrics => write!(f, "metrics"),
             Self::Trace => write!(f, "trace"),
             Self::Infra => write!(f, "infra"),
+            Self::Remediation => write!(f, "remediation"),
         }
     }
 }
@@ -127,6 +130,10 @@ pub enum AgentPayload {
     /// Recorded in the event log so the audit trail isn't silent on
     /// duplicates from the at-least-once NATS path or webhook retries.
     IngestDeduped(IngestDedupedNotice),
+    /// Orchestrator -> RemediationAgent: propose remediations (Phase 2c, ADR-009).
+    RemediationRequest(crate::remediation::RemediationContext),
+    /// RemediationAgent -> Orchestrator: proposed remediation actions.
+    RemediationProposed(crate::remediation::RemediationProposalSet),
 }
 
 /// Audit payload recorded when ingestion drops a duplicate alert.
