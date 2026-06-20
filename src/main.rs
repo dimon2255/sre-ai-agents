@@ -395,6 +395,20 @@ async fn bootstrap(
         info!("LLM reasoning engine enabled (ADR-015)");
     }
 
+    // Knowledge store + learning loop (Phase 3, ADR-016). Opt-in. The knowledge
+    // store grounds the reasoning engine with similar past incidents (RAG); the
+    // learning loop embeds each completed incident back into it. Defaults to the
+    // deterministic in-memory mock so RAG works offline (provider = "qdrant" for
+    // the real vector DB).
+    if let Some(store) = sre_intelligence::build_knowledge_store(&config.knowledge) {
+        if let Err(e) = store.ensure_ready().await {
+            warn!(error = %e, "Knowledge store not ready — RAG/learning will be best-effort");
+        }
+        let learning = Arc::new(sre_intelligence::LearningLoop::new(store.clone()));
+        orchestrator = orchestrator.with_knowledge(store).with_learning(learning);
+        info!("Knowledge store + learning loop enabled (ADR-016)");
+    }
+
     Ok((orchestrator, join_handles, store))
 }
 

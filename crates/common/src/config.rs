@@ -20,6 +20,8 @@ pub struct PlatformConfig {
     pub remediation: RemediationConfig,
     #[serde(default)]
     pub reasoning: ReasoningConfig,
+    #[serde(default)]
+    pub knowledge: KnowledgeConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -512,6 +514,72 @@ impl Default for ReasoningConfig {
     }
 }
 
+/// Knowledge store (Phase 3, ADR-016) — vector memory of past incidents for
+/// retrieval-augmented RCA + the learning loop's embedding sink. Disabled by
+/// default; when enabled defaults to the deterministic in-memory mock so RAG
+/// works offline, with `provider = "qdrant"` for the real vector DB.
+#[derive(Debug, Clone, Deserialize)]
+pub struct KnowledgeConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    /// `"mock"` | `"qdrant"`. Defaults to `"mock"` (offline, deterministic).
+    #[serde(default = "default_knowledge_provider")]
+    pub provider: String,
+    /// Qdrant REST base URL (used when `provider = "qdrant"`).
+    #[serde(default = "default_knowledge_url")]
+    pub url: String,
+    /// Qdrant collection name.
+    #[serde(default = "default_knowledge_collection")]
+    pub collection: String,
+    /// Embedding dimensionality (lexical hash embedder).
+    #[serde(default = "default_knowledge_vector_dim")]
+    pub vector_dim: usize,
+    /// How many related past incidents to retrieve for RAG grounding.
+    #[serde(default = "default_knowledge_top_k")]
+    pub top_k: usize,
+    /// Env var holding the Qdrant Cloud API key (optional; None for local Qdrant).
+    #[serde(default = "default_knowledge_api_key_env")]
+    pub api_key_env: Option<String>,
+}
+
+fn default_knowledge_provider() -> String {
+    "mock".to_string()
+}
+
+fn default_knowledge_url() -> String {
+    "http://localhost:6333".to_string()
+}
+
+fn default_knowledge_collection() -> String {
+    "sre_incidents".to_string()
+}
+
+fn default_knowledge_vector_dim() -> usize {
+    256
+}
+
+fn default_knowledge_top_k() -> usize {
+    3
+}
+
+fn default_knowledge_api_key_env() -> Option<String> {
+    Some("QDRANT_API_KEY".to_string())
+}
+
+impl Default for KnowledgeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            provider: default_knowledge_provider(),
+            url: default_knowledge_url(),
+            collection: default_knowledge_collection(),
+            vector_dim: default_knowledge_vector_dim(),
+            top_k: default_knowledge_top_k(),
+            api_key_env: default_knowledge_api_key_env(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ObservabilityConfig {
     #[serde(default)]
@@ -661,6 +729,7 @@ impl Default for PlatformConfig {
             grpc: GrpcConfig::default(),
             remediation: RemediationConfig::default(),
             reasoning: ReasoningConfig::default(),
+            knowledge: KnowledgeConfig::default(),
         }
     }
 }
