@@ -3335,6 +3335,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-nats",
+ "async-trait",
  "axum",
  "bytes",
  "chrono",
@@ -3354,6 +3355,7 @@ dependencies = [
  "sqlx",
  "sre-agents",
  "sre-azure",
+ "sre-chatops",
  "sre-common",
  "sre-gates",
  "sre-intelligence",
@@ -3388,6 +3390,17 @@ dependencies = [
  "tokio",
  "tracing",
  "wiremock",
+]
+
+[[package]]
+name = "sre-chatops"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "sre-common",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

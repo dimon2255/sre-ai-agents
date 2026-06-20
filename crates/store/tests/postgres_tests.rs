@@ -75,6 +75,32 @@ async fn test_get_nonexistent_workflow() {
 }
 
 #[tokio::test]
+async fn test_get_workflow_by_alert_id() {
+    let (store, _container) = create_test_store().await;
+    let workflow = make_workflow();
+    let id = workflow.id;
+    let alert_id = workflow.alert_id.clone();
+
+    store.create_workflow(&workflow).await.unwrap();
+
+    // ChatOps status lookup by the alert/tracking id resolves the workflow.
+    let retrieved = store
+        .get_workflow_by_alert_id(&alert_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(retrieved.id, id);
+    assert_eq!(retrieved.alert_id, alert_id);
+
+    // An unknown alert id yields None.
+    let missing = store
+        .get_workflow_by_alert_id("chatops-does-not-exist")
+        .await
+        .unwrap();
+    assert!(missing.is_none());
+}
+
+#[tokio::test]
 async fn test_update_workflow_state() {
     let (store, _container) = create_test_store().await;
     let workflow = make_workflow();
