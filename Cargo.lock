@@ -3356,6 +3356,7 @@ dependencies = [
  "sre-azure",
  "sre-common",
  "sre-gates",
+ "sre-intelligence",
  "sre-notify",
  "sre-orchestrator",
  "sre-store",
@@ -3416,6 +3417,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "sre-intelligence"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sre-common",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "sre-notify"
 version = "0.1.0"
 dependencies = [
@@ -3444,6 +3459,7 @@ dependencies = [
  "sre-azure",
  "sre-common",
  "sre-gates",
+ "sre-intelligence",
  "sre-store",
  "testcontainers-modules",
  "thiserror",

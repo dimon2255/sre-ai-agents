@@ -387,6 +387,14 @@ async fn bootstrap(
         info!("Gated remediation pipeline enabled (ADR-009)");
     }
 
+    // LLM reasoning engine (Phase 3, ADR-015). Opt-in; synthesizes an RCA after
+    // each investigation. Real Claude when ANTHROPIC_API_KEY is set, else the
+    // deterministic mock engine.
+    if let Some(engine) = sre_intelligence::build_engine(&config.reasoning) {
+        orchestrator = orchestrator.with_reasoning(engine);
+        info!("LLM reasoning engine enabled (ADR-015)");
+    }
+
     Ok((orchestrator, join_handles, store))
 }
 

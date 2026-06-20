@@ -115,3 +115,14 @@ database_url = "postgres://postgres:password@localhost:5432/sre_agents"
 # per_resource_type_hourly_limit = 3
 # auto_approve_min_confidence = 0.95
 # business_hours_only = false
+
+# LLM reasoning engine (Phase 3, ADR-015). Synthesizes a root-cause analysis
+# after each investigation, enriching the report summary. Disabled by default.
+# When enabled with provider="claude", set ANTHROPIC_API_KEY (otherwise it
+# falls back to the deterministic mock engine). Defaults to claude-opus-4-8.
+# [reasoning]
+# enabled = false
+# provider = "claude"               # claude | mock
+# model = "claude-opus-4-8"
+# max_tokens = 2048
+# api_key_env = "ANTHROPIC_API_KEY"

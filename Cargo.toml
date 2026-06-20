@@ -8,6 +8,7 @@ members = [
     "crates/orchestrator",
     "crates/notify",
     "crates/gates",
+    "crates/intelligence",
     ".",
 ]
 
@@ -32,6 +33,7 @@ sre-agents = { path = "crates/agents" }
 sre-orchestrator = { path = "crates/orchestrator" }
 sre-notify = { path = "crates/notify" }
 sre-gates = { path = "crates/gates" }
+sre-intelligence = { path = "crates/intelligence" }
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
