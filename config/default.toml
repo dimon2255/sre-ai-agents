@@ -115,6 +115,10 @@ database_url = "postgres://postgres:password@localhost:5432/sre_agents"
 # per_resource_type_hourly_limit = 3
 # auto_approve_min_confidence = 0.95
 # business_hours_only = false
+# progressive_trust = false          # Phase 3 (ADR-017): trusted categories earn a
+#                                    # lower auto-approve floor (0.95→0.85) over
+#                                    # consecutive successes; a failure resets +
+#                                    # cools down. Never bypasses the gate.
 
 # LLM reasoning engine (Phase 3, ADR-015). Synthesizes a root-cause analysis
 # after each investigation, enriching the report summary. Disabled by default.

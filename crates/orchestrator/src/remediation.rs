@@ -22,14 +22,26 @@ use sre_common::remediation::{
     RemediationContext, RemediationEvent, RemediationEventKind, RemediationProposal,
     RollbackStrategy,
 };
-use sre_gates::ApprovalGate;
+use sre_gates::{ApprovalGate, TrustModel};
+
+/// Unreachable confidence floor used to suspend LowRisk auto-approval while a
+/// category is in a progressive-trust cooldown — forces the gate's normal
+/// human-approval routing without special-casing the decision (ADR-017).
+const COOLDOWN_FLOOR: f64 = 1.01;
 
 /// Executes an approved remediation against ARM with a post-mortem blast-radius
 /// check and rollback-on-overscope (ADR-009 §follow-ups).
+///
+/// When a [`TrustModel`] is attached (Phase 3 auto-remediation, ADR-017) the
+/// executor consults it for the per-category auto-approve confidence floor and
+/// feeds each execution's outcome back so trusted patterns earn lower floors over
+/// time. Without one it behaves exactly as in Phase 2c (the gate's configured
+/// floor, no learning).
 pub struct RemediationExecutor {
     arm: Arc<dyn ArmWriteClient>,
     gate: Arc<ApprovalGate>,
     subscription_id: String,
+    trust: Option<Arc<TrustModel>>,
 }
 
 impl RemediationExecutor {
@@ -42,7 +54,14 @@ impl RemediationExecutor {
             arm,
             gate,
             subscription_id: subscription_id.into(),
+            trust: None,
         }
+    }
+
+    /// Attach a progressive-trust model (Phase 3, ADR-017). Builder style.
+    pub fn with_trust(mut self, trust: Arc<TrustModel>) -> Self {
+        self.trust = Some(trust);
+        self
     }
 
     /// Run one proposal through the gate and, if auto-approved, the executor.
@@ -62,7 +81,23 @@ impl RemediationExecutor {
             now,
         )];
 
-        let decision = self.gate.evaluate(proposal, &self.subscription_id, now);
+        // Progressive trust (ADR-017): a trusted category gets a lower auto-approve
+        // floor; one in cooldown gets an unreachable floor that routes it to human
+        // approval. Without a trust model, fall back to the gate's configured floor.
+        let decision = match self.trust.as_ref() {
+            Some(trust) => {
+                let floor = trust
+                    .threshold_for(proposal.category, now)
+                    .unwrap_or(COOLDOWN_FLOOR);
+                self.gate.evaluate_with_confidence_floor(
+                    proposal,
+                    &self.subscription_id,
+                    now,
+                    floor,
+                )
+            }
+            None => self.gate.evaluate(proposal, &self.subscription_id, now),
+        };
         events.push(RemediationEvent::new(
             proposal,
             decision.event_kind(),
@@ -86,6 +121,7 @@ impl RemediationExecutor {
             now,
         ));
 
+        let mut exec_success = false;
         match self.arm.execute(&proposal.arm_request).await {
             Ok(resp) => {
                 // Post-mortem blast-radius check: every affected resource must be
@@ -104,6 +140,7 @@ impl RemediationExecutor {
                     .collect();
 
                 if over_scope.is_empty() {
+                    exec_success = true;
                     events.push(RemediationEvent::new(
                         proposal,
                         Executed,
@@ -141,6 +178,13 @@ impl RemediationExecutor {
             }
         }
 
+        // Progressive trust (ADR-017): feed the outcome back so the category's
+        // auto-approve floor adapts — success climbs the trust tiers; an
+        // over-scope rollback or ARM failure resets and triggers a cooldown.
+        if let Some(trust) = self.trust.as_ref() {
+            trust.record(proposal.category, exec_success, now);
+        }
+
         self.gate.release(proposal);
         events
     }
@@ -174,6 +218,14 @@ impl RemediationPipeline {
             agent: RemediationAgent::new(),
             executor: RemediationExecutor::new(arm, gate, subscription_id),
         }
+    }
+
+    /// Enable progressive-trust auto-remediation (Phase 3, ADR-017). Builder
+    /// style: the executor consults the trust model for the per-category
+    /// auto-approve floor and feeds outcomes back to it.
+    pub fn with_trust(mut self, trust: Arc<TrustModel>) -> Self {
+        self.executor = self.executor.with_trust(trust);
+        self
     }
 }
 
@@ -336,5 +388,84 @@ mod tests {
         let ctx = build_context(&report).unwrap();
         assert_eq!(ctx.params.resource_name, "web");
         assert_eq!(ctx.findings.len(), 1);
+    }
+
+    // ── Progressive trust (ADR-017) ──
+
+    fn with_conf(mut p: RemediationProposal, c: f64) -> RemediationProposal {
+        p.confidence = c;
+        p
+    }
+
+    const RW: RemediationCategory = RemediationCategory::RestartWorkload;
+
+    #[tokio::test]
+    async fn untrusted_category_routes_sub_base_confidence_to_approval() {
+        // No trust model: the fixed 0.95 floor applies, so 0.94 needs a human.
+        let gate = Arc::new(ApprovalGate::with_defaults());
+        let arm = Arc::new(MockArmClient::new());
+        let exec = RemediationExecutor::new(arm.clone(), gate, "sub-1");
+        let events = exec.process(&with_conf(low_risk(), 0.94), at()).await;
+        assert!(events
+            .iter()
+            .any(|e| e.kind == RemediationEventKind::ApprovalRequested));
+        assert_eq!(arm.calls().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn trusted_category_auto_approves_below_base_floor() {
+        let trust = Arc::new(TrustModel::with_defaults());
+        for _ in 0..10 {
+            trust.record(RW, true, at()); // earns the 0.93 floor
+        }
+        let gate = Arc::new(ApprovalGate::with_defaults());
+        let arm = Arc::new(MockArmClient::new());
+        let exec = RemediationExecutor::new(arm.clone(), gate, "sub-1").with_trust(trust.clone());
+        // 0.94 is below the 0.95 base but above the earned 0.93 floor.
+        let events = exec.process(&with_conf(low_risk(), 0.94), at()).await;
+        let kinds: Vec<RemediationEventKind> = events.iter().map(|e| e.kind).collect();
+        assert!(kinds.contains(&RemediationEventKind::AutoApproved));
+        assert!(kinds.contains(&RemediationEventKind::Executed));
+        assert_eq!(arm.calls().len(), 1);
+        // Outcome fed back: 10 prior + this success = 11.
+        assert_eq!(trust.successes(RW), 11);
+    }
+
+    #[tokio::test]
+    async fn category_in_cooldown_routes_to_approval_even_at_high_confidence() {
+        let trust = Arc::new(TrustModel::with_defaults());
+        for _ in 0..10 {
+            trust.record(RW, true, at());
+        }
+        trust.record(RW, false, at()); // failure → cooldown, auto-remediation suspended
+        let gate = Arc::new(ApprovalGate::with_defaults());
+        let arm = Arc::new(MockArmClient::new());
+        let exec = RemediationExecutor::new(arm.clone(), gate, "sub-1").with_trust(trust);
+        // Even 0.99 confidence can't auto-approve during cooldown.
+        let events = exec.process(&with_conf(low_risk(), 0.99), at()).await;
+        assert!(events
+            .iter()
+            .any(|e| e.kind == RemediationEventKind::ApprovalRequested));
+        assert_eq!(arm.calls().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn arm_failure_feeds_back_and_resets_trust() {
+        let trust = Arc::new(TrustModel::with_defaults());
+        for _ in 0..5 {
+            trust.record(RW, true, at()); // still base floor (0.95), successes = 5
+        }
+        let gate = Arc::new(ApprovalGate::with_defaults());
+        let arm = Arc::new(MockArmClient::with_mode(MockArmMode::Failure(
+            "boom".to_string(),
+        )));
+        let exec = RemediationExecutor::new(arm, gate, "sub-1").with_trust(trust.clone());
+        // 0.97 ≥ 0.95 base → auto-approves, then ARM fails.
+        let _ = exec.process(&low_risk(), at()).await;
+        assert_eq!(
+            trust.successes(RW),
+            0,
+            "an ARM failure must reset consecutive successes"
+        );
     }
 }

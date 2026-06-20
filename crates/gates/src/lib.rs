@@ -16,7 +16,9 @@
 pub mod decision;
 pub mod gate;
 pub mod guardrails;
+pub mod trust;
 
 pub use decision::GateDecision;
 pub use gate::ApprovalGate;
 pub use guardrails::{resource_type_of, GuardrailConfig};
+pub use trust::{TrustModel, TrustPolicy};
