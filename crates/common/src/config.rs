@@ -18,6 +18,8 @@ pub struct PlatformConfig {
     pub grpc: GrpcConfig,
     #[serde(default)]
     pub remediation: RemediationConfig,
+    #[serde(default)]
+    pub reasoning: ReasoningConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -455,6 +457,61 @@ impl Default for RemediationConfig {
     }
 }
 
+/// LLM reasoning engine configuration (Phase 3, ADR-015). Disabled by default.
+/// When enabled with `provider = "claude"` and the API key env var set, the
+/// orchestrator synthesizes an LLM root-cause analysis after each investigation;
+/// otherwise a deterministic mock engine is used (so CI/dev always work).
+#[derive(Debug, Clone, Deserialize)]
+pub struct ReasoningConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    /// `"claude"` | `"mock"`. Defaults to `"claude"` (falls back to mock without
+    /// an API key).
+    #[serde(default = "default_reasoning_provider")]
+    pub provider: String,
+    /// Anthropic model id. Defaults to `claude-opus-4-8`.
+    #[serde(default = "default_reasoning_model")]
+    pub model: String,
+    /// Max tokens for the RCA synthesis response.
+    #[serde(default = "default_reasoning_max_tokens")]
+    pub max_tokens: u32,
+    /// Env var holding the Anthropic API key.
+    #[serde(default = "default_reasoning_api_key_env")]
+    pub api_key_env: String,
+    /// Optional API base URL override (for testing against a mock server).
+    #[serde(default)]
+    pub base_url: Option<String>,
+}
+
+fn default_reasoning_provider() -> String {
+    "claude".to_string()
+}
+
+fn default_reasoning_model() -> String {
+    "claude-opus-4-8".to_string()
+}
+
+fn default_reasoning_max_tokens() -> u32 {
+    2048
+}
+
+fn default_reasoning_api_key_env() -> String {
+    "ANTHROPIC_API_KEY".to_string()
+}
+
+impl Default for ReasoningConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            provider: default_reasoning_provider(),
+            model: default_reasoning_model(),
+            max_tokens: default_reasoning_max_tokens(),
+            api_key_env: default_reasoning_api_key_env(),
+            base_url: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ObservabilityConfig {
     #[serde(default)]
@@ -603,6 +660,7 @@ impl Default for PlatformConfig {
             notifications: NotificationConfig::default(),
             grpc: GrpcConfig::default(),
             remediation: RemediationConfig::default(),
+            reasoning: ReasoningConfig::default(),
         }
     }
 }

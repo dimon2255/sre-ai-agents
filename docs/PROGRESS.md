@@ -197,7 +197,7 @@
 
 ## Phase 3 — Intelligent Autonomy: LLM Reasoning & Learning
 
-**Status**: Not Started
+**Status**: In Progress (started 2026-06-20)
 **Duration**: Ongoing
 **Goal**: Reduce MTTR through intelligent correlation and trusted automated response
 
@@ -205,7 +205,7 @@
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| ReasoningEngine (LLM-powered RCA synthesis) | Not Started | |
+| ReasoningEngine (LLM-powered RCA synthesis) | Done | New `sre-intelligence` crate (ADR-015). `ReasoningEngine` trait + `MockReasoningEngine` (deterministic, rule-based; CI/dev) + `ClaudeReasoningEngine` (real Anthropic Messages API via raw HTTP — no Rust SDK — default `claude-opus-4-8`). Selected by config like `auth_mode`: Claude when `ANTHROPIC_API_KEY` set, else mock. Orchestrator enriches the report summary with the synthesized RCA (root cause, confidence, factors, actions, narrative) — best-effort, opt-in (`[reasoning]`), never blocks an investigation. `related_incidents` seam ready for RAG. |
 | KnowledgeStore (Qdrant vector DB, past incidents) | Not Started | |
 | LearningLoop (outcome tracking, confidence adjustment) | Not Started | |
 | AutoRemediationEngine (pre-approved playbooks) | Not Started | |
@@ -245,6 +245,7 @@
 | [ADR-012](adr/012-schema-type-modernization.md) | Schema Type Modernization | Accepted (2026-04-19) |
 | [ADR-013](adr/013-nats-jetstream-ingest.md) | NATS JetStream as Parallel Ingestion Path | Accepted (2026-05-18; PR-2/3 2026-06-20) |
 | [ADR-014](adr/014-horizontal-scaling-model.md) | Horizontal Scaling Model (Multi-Replica) | Accepted (2026-06-20) |
+| [ADR-015](adr/015-llm-reasoning-engine.md) | LLM Reasoning Engine | Accepted (2026-06-20) |
 
 ---
 

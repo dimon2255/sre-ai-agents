@@ -9,6 +9,7 @@ sre-agents = { path = "../agents" }
 sre-store = { path = "../store" }
 sre-azure = { path = "../azure" }
 sre-gates = { path = "../gates" }
+sre-intelligence = { path = "../intelligence" }
 tokio.workspace = true
 async-trait.workspace = true
 tracing.workspace = true

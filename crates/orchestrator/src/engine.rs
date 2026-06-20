@@ -51,6 +51,9 @@ pub struct Orchestrator {
     /// Optional gated-remediation pipeline (Phase 2c, ADR-009). `None` unless
     /// remediation is enabled; set via [`Orchestrator::with_remediation`].
     remediation: Option<crate::remediation::RemediationPipeline>,
+    /// Optional LLM reasoning engine (Phase 3, ADR-015). `None` unless enabled;
+    /// set via [`Orchestrator::with_reasoning`].
+    reasoning: Option<Arc<dyn sre_intelligence::ReasoningEngine>>,
 }
 
 impl Orchestrator {
@@ -69,6 +72,7 @@ impl Orchestrator {
             event_log,
             dedup_cache: Arc::new(Mutex::new(AlertDedupCache::new(dedup_capacity))),
             remediation: None,
+            reasoning: None,
         }
     }
 
@@ -90,6 +94,7 @@ impl Orchestrator {
             event_log,
             dedup_cache,
             remediation: None,
+            reasoning: None,
         }
     }
 
@@ -97,6 +102,12 @@ impl Orchestrator {
     /// the existing `new` / `new_with_dedup` call sites are unaffected.
     pub fn with_remediation(mut self, pipeline: crate::remediation::RemediationPipeline) -> Self {
         self.remediation = Some(pipeline);
+        self
+    }
+
+    /// Attach an LLM reasoning engine (Phase 3, ADR-015). Builder style.
+    pub fn with_reasoning(mut self, engine: Arc<dyn sre_intelligence::ReasoningEngine>) -> Self {
+        self.reasoning = Some(engine);
         self
     }
 
@@ -449,7 +460,51 @@ impl Orchestrator {
         workflow.transition_to(final_state)?;
         let _ = self.store.update_state(&correlation_id, final_state).await;
 
-        let report = workflow.generate_report();
+        let mut report = workflow.generate_report();
+
+        // Phase 3 (ADR-015): enrich the report with an LLM-synthesized RCA when a
+        // reasoning engine is configured. Best-effort — a failure keeps the
+        // rule-based summary and never fails the investigation.
+        if let Some(engine) = self.reasoning.as_ref() {
+            let input = sre_intelligence::ReasoningInput {
+                investigation_id: report.investigation_id.clone(),
+                affected_resource: report.affected_resource.clone(),
+                trigger: report.trigger.clone(),
+                severity: alert.severity.to_string(),
+                findings: report.findings.clone(),
+                agent_summary: report.summary.clone(),
+                overall_confidence: report.overall_confidence,
+                related_incidents: Vec::new(),
+            };
+            match engine.synthesize(&input).await {
+                Ok(rca) => {
+                    info!(
+                        engine = engine.name(),
+                        root_cause = %rca.root_cause,
+                        confidence = rca.confidence,
+                        "LLM RCA synthesized"
+                    );
+                    let actions = if rca.recommended_actions.is_empty() {
+                        "escalate".to_string()
+                    } else {
+                        rca.recommended_actions.join("; ")
+                    };
+                    report.summary = format!(
+                        "[RCA · {}] {}\nConfidence: {:.0}%. Recommended: {}.\n{}\n\n— Agent findings: {}",
+                        engine.name(),
+                        rca.root_cause,
+                        rca.confidence * 100.0,
+                        actions,
+                        rca.narrative,
+                        report.summary,
+                    );
+                }
+                Err(e) => {
+                    warn!(error = %e, "LLM RCA synthesis failed — keeping rule-based summary")
+                }
+            }
+        }
+
         let _ = self.store.store_report(&correlation_id, &report).await;
 
         // Record outcome fields on the root span for trace filtering
