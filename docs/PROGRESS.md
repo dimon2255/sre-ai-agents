@@ -144,7 +144,7 @@
 |---|-----------|--------|-------|
 | 1 | NATS JetStream ingestion (ADR-013) — PR-1/2/3 | Done | Parallel ingestion path: webhook stays, NATS adds durable/replayable ingest. Boundary held at `mpsc::Sender<AlertInfo>` — orchestrator and agents untouched. **PR-1 (merged #18):** NatsConfig, `parse_and_enqueue` shared helper, `src/ingest/nats.rs` with backpressure (no-ack-until-enqueued) + `CancellationToken` graceful shutdown, `AlertDedupCache` (FIFO, in-memory), testcontainers smoke test. **PR-2 (done):** OTel metrics `nats_consumer_pending` / `nats_redeliveries_total` / `nats_dlq_total` via a global `SdkMeterProvider` (OTLP, gated by `observability.enabled`), read from per-message JetStream `Info` (zero extra round-trips) — `src/ingest/metrics.rs`. **PR-3 (done):** DLQ stream `sre-alerts-dlq` (subject `alerts.dlq.azure.poison`); poison payloads republished with `Sre-Dlq-Reason`/`Sre-Original-Subject` headers before terminate; integration test asserts poison→DLQ. |
 | 2 | Horizontal scaling (multi-replica) | Not Started | Requires NATS work distribution (post-PR-3) |
-| 3 | Notification Engine (Slack, Teams, PagerDuty) | Not Started | Rides on NATS subjects |
+| 3 | Notification Engine (Slack, Teams, PagerDuty) | Done | New `sre-notify` crate. `Notifier` trait + `MockNotifier` (dev/CI) + real Slack (mrkdwn), Teams (MessageCard), PagerDuty (Events API v2) bindings. `NotificationEngine` decides via a severity threshold + escalation policy and fans out to every configured provider concurrently (best-effort — one broken destination never blocks the others). Wired into the orchestrator dispatch loop; config-gated (`[notifications]`, provider secrets via env). |
 | 4 | InboundMessage serialization migration | Deferred | Not needed for ingestion-only NATS. Required only when **agent replies** cross NATS (Phase 3 concern). ADR-013 explicitly keeps `InboundMessage.reply_tx` as `mpsc::Sender` for now. |
 | 5 | gRPC API (external integration surface) | Not Started | tonic-based API for external systems |
 
@@ -152,7 +152,7 @@
 
 - [ ] NATS enables message replay for debugging
 - [ ] Platform runs multi-replica behind ACA scaling
-- [ ] Notification engine delivers to Slack/Teams/PagerDuty
+- [x] Notification engine delivers to Slack/Teams/PagerDuty
 - [ ] gRPC API allows external systems to trigger and query investigations
 - [ ] Load test re-validated: 50 concurrent investigations after NATS migration
 

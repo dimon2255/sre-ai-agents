@@ -3290,6 +3290,7 @@ dependencies = [
  "sre-agents",
  "sre-azure",
  "sre-common",
+ "sre-notify",
  "sre-orchestrator",
  "sre-store",
  "subtle",
@@ -3331,6 +3332,22 @@ dependencies = [
  "tokio",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "sre-notify"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures-util",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sre-common",
+ "thiserror",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
