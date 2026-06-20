@@ -8,7 +8,7 @@ use sre_azure::query_client::AzureQueryClient;
 use sre_common::messages::*;
 
 use sre_agents::traits::SreAgent;
-use sre_agents::{LogsAgent, MetricsAgent, TriageAgent};
+use sre_agents::{InfraAgent, LogsAgent, MetricsAgent, TraceAgent, TriageAgent};
 
 fn make_alert(resource: &str, severity: AlertSeverity) -> AlertInfo {
     AlertInfo {
@@ -298,4 +298,121 @@ fn test_agent_types() {
 
     let metrics = MetricsAgent::new(Arc::new(AzureQueryClient::new(credential)), vec![]);
     assert!(matches!(metrics.agent_type(), AgentType::Metrics));
+}
+
+// ─── TraceAgent Tests ───
+
+#[tokio::test]
+async fn test_trace_agent_with_no_app_insights() {
+    // TraceAgent with empty App Insights list — returns quickly with no findings
+    let credential = Arc::new(MockTokenProvider::new("test-token"));
+    let agent = TraceAgent::new(Arc::new(AzureQueryClient::new(credential)), vec![], 50);
+
+    let (agent_tx, agent_rx) = mpsc::channel(16);
+    let handle = tokio::spawn(async move { agent.run(agent_rx).await });
+
+    let correlation_id = uuid::Uuid::new_v4();
+    let msg = AgentMessage::new(
+        correlation_id,
+        AgentId("orchestrator".to_string()),
+        MessageTarget::Agent(AgentId("trace-agent".to_string())),
+        AgentPayload::AnalysisTask(AnalysisTask {
+            task_type: AnalysisTaskType::TraceCorrelation,
+            params: InvestigationParams {
+                resource_name: "payments-api".to_string(),
+                resource_group: Some("prod-rg".to_string()),
+                timespan_minutes: 30,
+                operation_ids: vec![],
+            },
+        }),
+        1.0,
+    );
+
+    let mut reply_rx = send_with_reply(&agent_tx, msg).await;
+
+    let response = tokio::time::timeout(Duration::from_secs(5), reply_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(response.correlation_id, correlation_id);
+    if let AgentPayload::AnalysisResult(result) = &response.payload {
+        assert!(!result.summary.is_empty());
+        assert_eq!(result.findings.len(), 0); // no app insights = no findings
+        assert_eq!(result.queries_executed.len(), 0);
+    } else {
+        panic!("Expected AnalysisResult");
+    }
+
+    drop(agent_tx);
+    handle.await.unwrap().unwrap();
+}
+
+// ─── InfraAgent Tests ───
+
+#[tokio::test]
+async fn test_infra_agent_with_no_workspaces() {
+    // InfraAgent with empty workspace list — returns quickly with no findings
+    let credential = Arc::new(MockTokenProvider::new("test-token"));
+    let agent = InfraAgent::new(Arc::new(AzureQueryClient::new(credential)), vec![], 50);
+
+    let (agent_tx, agent_rx) = mpsc::channel(16);
+    let handle = tokio::spawn(async move { agent.run(agent_rx).await });
+
+    let correlation_id = uuid::Uuid::new_v4();
+    let msg = AgentMessage::new(
+        correlation_id,
+        AgentId("orchestrator".to_string()),
+        MessageTarget::Agent(AgentId("infra-agent".to_string())),
+        AgentPayload::AnalysisTask(AnalysisTask {
+            task_type: AnalysisTaskType::InfraChanges,
+            params: InvestigationParams {
+                resource_name: "payments-api".to_string(),
+                resource_group: Some("prod-rg".to_string()),
+                timespan_minutes: 120,
+                operation_ids: vec![],
+            },
+        }),
+        1.0,
+    );
+
+    let mut reply_rx = send_with_reply(&agent_tx, msg).await;
+
+    let response = tokio::time::timeout(Duration::from_secs(5), reply_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(response.correlation_id, correlation_id);
+    if let AgentPayload::AnalysisResult(result) = &response.payload {
+        assert!(!result.summary.is_empty());
+        assert_eq!(result.findings.len(), 0); // no workspaces = no findings
+        assert_eq!(result.queries_executed.len(), 0);
+    } else {
+        panic!("Expected AnalysisResult");
+    }
+
+    drop(agent_tx);
+    handle.await.unwrap().unwrap();
+}
+
+#[test]
+fn test_new_agent_types_and_capabilities() {
+    let credential = Arc::new(MockTokenProvider::new("token"));
+
+    let trace = TraceAgent::new(
+        Arc::new(AzureQueryClient::new(credential.clone())),
+        vec![],
+        50,
+    );
+    assert!(matches!(trace.agent_type(), AgentType::Trace));
+    assert!(trace
+        .capabilities()
+        .contains(&"trace_correlation".to_string()));
+
+    let infra = InfraAgent::new(Arc::new(AzureQueryClient::new(credential)), vec![], 50);
+    assert!(matches!(infra.agent_type(), AgentType::Infra));
+    assert!(infra
+        .capabilities()
+        .contains(&"change_correlation".to_string()));
 }

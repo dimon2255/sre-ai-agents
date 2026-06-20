@@ -48,13 +48,6 @@ impl TriageAgent {
             AlertSeverity::Sev3 | AlertSeverity::Sev4 => 120,
         };
 
-        // Determine which agents to invoke based on signal type
-        let recommended_agents = match alert.signal_type.as_str() {
-            "Metric" => vec![AgentType::Metrics, AgentType::Logs],
-            "Log" => vec![AgentType::Logs, AgentType::Metrics],
-            _ => vec![AgentType::Logs, AgentType::Metrics],
-        };
-
         // Extract operation IDs from raw context if available
         let operation_ids = alert
             .raw_context
@@ -65,6 +58,22 @@ impl TriageAgent {
                     .map(|id| vec![id.to_string()])
             })
             .unwrap_or_default();
+
+        // Determine which agents to invoke. Logs + Metrics are the baseline
+        // pair. InfraAgent always runs — "what changed?" (recent deployments,
+        // config edits, resource-health transitions) is a primary root-cause
+        // signal for any incident. TraceAgent runs when there is an operation to
+        // correlate or a Metric signal, where cross-service hop latency/failure
+        // localization adds the most value.
+        let mut recommended_agents = match alert.signal_type.as_str() {
+            "Metric" => vec![AgentType::Metrics, AgentType::Logs],
+            "Log" => vec![AgentType::Logs, AgentType::Metrics],
+            _ => vec![AgentType::Logs, AgentType::Metrics],
+        };
+        recommended_agents.push(AgentType::Infra);
+        if !operation_ids.is_empty() || alert.signal_type == "Metric" {
+            recommended_agents.push(AgentType::Trace);
+        }
 
         let signal_summary = format!(
             "{} alert on {} ({})",

@@ -26,6 +26,16 @@ max_rows = 1000
 enabled = true
 default_timespan_minutes = 30
 
+[agents.trace]
+enabled = true
+default_timespan_minutes = 30
+max_rows = 50
+
+[agents.infra]
+enabled = true
+default_timespan_minutes = 120
+max_rows = 50
+
 [webhook]
 listen_addr = "0.0.0.0"
 listen_port = 8080

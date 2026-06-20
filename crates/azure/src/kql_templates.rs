@@ -159,6 +159,111 @@ pub fn dependency_performance(resource_name: &str, timespan_min: u32) -> String 
     )
 }
 
+// ─── TraceAgent Templates ───
+
+/// Trace failure correlation — joins failed requests to the failed dependency
+/// calls within the same operation (distributed trace), localizing which
+/// downstream hop is responsible for end-to-end failures.
+pub fn trace_failure_correlation(resource_name: &str, timespan_min: u32, max_rows: u32) -> String {
+    let resource = sanitize_resource_name(resource_name);
+    let ts = safe_timespan(timespan_min);
+    let rows = max_rows.min(DEFAULT_MAX_ROWS);
+
+    format!(
+        r#"AppRequests
+| where TimeGenerated > ago({ts}m)
+| where AppRoleName == "{resource}"
+| where Success == false
+| project OperationId, RequestName=OperationName, RequestResultCode=ResultCode
+| join kind=leftouter (
+    AppDependencies
+    | where TimeGenerated > ago({ts}m)
+    | where Success == false
+    | project OperationId, DependencyTarget=Target, DependencyType, DependencyResultCode=ResultCode
+) on OperationId
+| summarize FailedTraces=dcount(OperationId), DependencyFailures=countif(isnotempty(DependencyTarget))
+            by RequestName, DependencyTarget, DependencyType, DependencyResultCode
+| order by FailedTraces desc
+| take {rows}"#
+    )
+}
+
+/// Trace latency breakdown — for slow operations, attributes end-to-end latency
+/// to downstream dependency time vs. in-process time, surfacing the hop where
+/// time is actually spent.
+pub fn trace_latency_breakdown(resource_name: &str, timespan_min: u32, max_rows: u32) -> String {
+    let resource = sanitize_resource_name(resource_name);
+    let ts = safe_timespan(timespan_min);
+    let rows = max_rows.min(DEFAULT_MAX_ROWS);
+
+    format!(
+        r#"AppRequests
+| where TimeGenerated > ago({ts}m)
+| where AppRoleName == "{resource}"
+| where DurationMs > 1000
+| project OperationId, OperationName, RequestDurationMs=DurationMs
+| join kind=leftouter (
+    AppDependencies
+    | where TimeGenerated > ago({ts}m)
+    | summarize DependencyDurationMs=sum(DurationMs), DependencyCalls=count() by OperationId
+) on OperationId
+| extend DependencyShare=round(100.0 * coalesce(DependencyDurationMs, 0.0) / RequestDurationMs, 1)
+| summarize SlowTraces=count(),
+            AvgRequestMs=avg(RequestDurationMs),
+            AvgDependencyMs=avg(DependencyDurationMs),
+            AvgDependencyShare=avg(DependencyShare)
+            by OperationName
+| order by AvgRequestMs desc
+| take {rows}"#
+    )
+}
+
+// ─── InfraAgent Templates ───
+
+/// Recent infrastructure changes — administrative writes/deploys/restarts on
+/// the resource from the Azure Activity Log: the canonical "what changed?"
+/// signal for incident correlation.
+pub fn recent_deployments(resource_name: &str, timespan_min: u32, max_rows: u32) -> String {
+    let resource = sanitize_resource_name(resource_name);
+    let ts = safe_timespan(timespan_min);
+    let rows = max_rows.min(DEFAULT_MAX_ROWS);
+
+    format!(
+        r#"AzureActivity
+| where TimeGenerated > ago({ts}m)
+| where CategoryValue == "Administrative"
+| where OperationNameValue has_any ("write", "action", "delete", "deploy", "restart", "scale")
+| where Resource has "{resource}" or _ResourceId has "{resource}"
+| project TimeGenerated, OperationNameValue, ActivityStatusValue, Caller, ResourceGroup, Resource
+| order by TimeGenerated desc
+| take {rows}"#
+    )
+}
+
+/// Resource-health transitions — Azure Resource Health events from the Activity
+/// Log, capturing Available→Degraded/Unavailable shifts that often precede or
+/// explain an incident.
+pub fn resource_health(resource_name: &str, timespan_min: u32, max_rows: u32) -> String {
+    let resource = sanitize_resource_name(resource_name);
+    let ts = safe_timespan(timespan_min);
+    let rows = max_rows.min(DEFAULT_MAX_ROWS);
+
+    format!(
+        r#"AzureActivity
+| where TimeGenerated > ago({ts}m)
+| where CategoryValue == "ResourceHealth"
+| where Resource has "{resource}" or _ResourceId has "{resource}"
+| extend Props=parse_json(tostring(Properties))
+| project TimeGenerated,
+          CurrentHealth=tostring(Props.currentHealthStatus),
+          PreviousHealth=tostring(Props.previousHealthStatus),
+          Cause=tostring(Props.cause),
+          Resource
+| order by TimeGenerated desc
+| take {rows}"#
+    )
+}
+
 /// Format a timespan value for the KQL REST API timespan parameter
 /// e.g., 30 minutes -> "PT30M"
 pub fn format_api_timespan(minutes: u32) -> String {
@@ -205,5 +310,46 @@ mod tests {
     fn test_format_api_timespan() {
         assert_eq!(format_api_timespan(30), "PT30M");
         assert_eq!(format_api_timespan(5000), "PT1440M");
+    }
+
+    #[test]
+    fn test_trace_failure_correlation_template() {
+        let kql = trace_failure_correlation("payments-api", 30, 50);
+        assert!(kql.contains("ago(30m)"));
+        assert!(kql.contains("take 50"));
+        assert!(kql.contains("payments-api"));
+        assert!(kql.contains("AppDependencies"));
+    }
+
+    #[test]
+    fn test_trace_latency_breakdown_template() {
+        let kql = trace_latency_breakdown("payments-api", 60, 50);
+        assert!(kql.contains("ago(60m)"));
+        assert!(kql.contains("DependencyShare"));
+        assert!(kql.contains("payments-api"));
+    }
+
+    #[test]
+    fn test_recent_deployments_template() {
+        let kql = recent_deployments("payments-api", 120, 50);
+        assert!(kql.contains("AzureActivity"));
+        assert!(kql.contains("ago(120m)"));
+        assert!(kql.contains("take 50"));
+        assert!(kql.contains("payments-api"));
+    }
+
+    #[test]
+    fn test_resource_health_template() {
+        let kql = resource_health("payments-api", 120, 50);
+        assert!(kql.contains("AzureActivity"));
+        assert!(kql.contains("ResourceHealth"));
+        assert!(kql.contains("ago(120m)"));
+    }
+
+    #[test]
+    fn test_new_templates_sanitize_resource() {
+        let kql = recent_deployments("'; DROP TABLE--", 30, 10);
+        assert!(kql.contains("DROPTABLE--"));
+        assert!(!kql.contains("DROP TABLE"));
     }
 }

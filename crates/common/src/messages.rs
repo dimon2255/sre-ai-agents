@@ -21,6 +21,10 @@ pub enum AgentType {
     Triage,
     Logs,
     Metrics,
+    /// Distributed-trace correlation (App Insights AppRequests/AppDependencies)
+    Trace,
+    /// Infrastructure-change + resource-health (Azure Activity Log)
+    Infra,
 }
 
 impl std::fmt::Display for AgentType {
@@ -29,6 +33,8 @@ impl std::fmt::Display for AgentType {
             Self::Triage => write!(f, "triage"),
             Self::Logs => write!(f, "logs"),
             Self::Metrics => write!(f, "metrics"),
+            Self::Trace => write!(f, "trace"),
+            Self::Infra => write!(f, "infra"),
         }
     }
 }
@@ -268,6 +274,10 @@ pub enum AnalysisTaskType {
     PerformanceAnalysis,
     /// Analyze resource utilization metrics
     ResourceUtilization,
+    /// Correlate distributed traces to localize cross-service failures and latency
+    TraceCorrelation,
+    /// Detect recent deployments / config changes and resource-health transitions
+    InfraChanges,
 }
 
 /// Result from an investigation agent's analysis

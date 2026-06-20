@@ -15,7 +15,9 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, EnvFilter, Registry};
 
-use sre_agents::{AgentHandle, LogsAgent, MetricsAgent, SreAgent, TriageAgent};
+use sre_agents::{
+    AgentHandle, InfraAgent, LogsAgent, MetricsAgent, SreAgent, TraceAgent, TriageAgent,
+};
 use sre_azure::auth::AzureCredentialProvider;
 use sre_azure::query_client::AzureQueryClient;
 use sre_common::config::{ObservabilityConfig, PlatformConfig};
@@ -270,6 +272,30 @@ async fn bootstrap(
     if config.agents.metrics.enabled {
         spawn_agent(
             MetricsAgent::new(query_client.clone(), config.azure.app_insights_ids.clone()),
+            &mut router,
+            &mut join_handles,
+        );
+    }
+
+    if config.agents.trace.enabled {
+        spawn_agent(
+            TraceAgent::new(
+                query_client.clone(),
+                config.azure.app_insights_ids.clone(),
+                config.agents.trace.max_rows,
+            ),
+            &mut router,
+            &mut join_handles,
+        );
+    }
+
+    if config.agents.infra.enabled {
+        spawn_agent(
+            InfraAgent::new(
+                query_client.clone(),
+                config.azure.workspace_ids.clone(),
+                config.agents.infra.max_rows,
+            ),
             &mut router,
             &mut join_handles,
         );

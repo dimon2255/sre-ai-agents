@@ -41,6 +41,8 @@ pub enum FindingCategory {
     TrafficAnomaly,
     /// Configuration change detected
     ConfigChange,
+    /// Resource/service health degradation (Azure Resource Health transition)
+    ServiceHealth,
     /// General informational finding
     Informational,
 }

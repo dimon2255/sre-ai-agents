@@ -120,8 +120,8 @@
 | 1 | Staging deployment (Terraform + ACA) | Done | `infra/staging/`, release workflow, OIDC auth, deployed to `aca-sre-agents-demo` |
 | 2 | OpenTelemetry instrumentation | Done | 15 spans across critical path, OTLP HTTP exporter, config-driven (`SRE__OBSERVABILITY__ENABLED`) |
 | 3 | PostgreSQL migration (replace SQLite) | Done | Hard cut-over shipped 2026-04-19: `sqlite` feature removed, `PgStore` replaces `SqliteStore` across orchestrator/webhook/tests. Integration tests use `testcontainers-modules` (postgres:16-alpine pinned). Smoke test in `docker.yml` runs against a Postgres sidecar on a shared docker network. Staging DB provisioned via `azurerm_postgresql_flexible_server_database.app`; app role created out-of-band via `infra/staging/create-app-user.sql`. Password auth in ACA secret; MI follow-up tied to ADR-011. **Schema modernization (TEXT→UUID/JSONB/TIMESTAMPTZ, f64 precision fix, composite index) scheduled as a follow-up corrective migration — see ADR-012.** |
-| 4 | TraceAgent (distributed traces) | Not Started | App Insights trace correlation |
-| 5 | InfraAgent (Activity Log, Resource Health) | Not Started | Azure Activity Log + Resource Health API |
+| 4 | TraceAgent (distributed traces) | Done | `crates/agents/src/trace.rs` — App Insights `AppRequests` ⋈ `AppDependencies` correlated by `OperationId`. Two KQL templates (`trace_failure_correlation`, `trace_latency_breakdown`): localizes which downstream hop owns end-to-end failures and where latency is actually spent. New `AgentType::Trace` + `AnalysisTaskType::TraceCorrelation`. Triage routes Trace when `operation_ids` are present or on a Metric signal. |
+| 5 | InfraAgent (Activity Log, Resource Health) | Done | `crates/agents/src/infra.rs` — Azure Activity Log via the Log Analytics `AzureActivity` table (KQL templates, ADR-005). Two templates (`recent_deployments`, `resource_health`): "what changed?" (administrative writes/deploys/restarts → `DeploymentCorrelation`) and Resource Health transitions (Available→Degraded/Unavailable → new `FindingCategory::ServiceHealth`). New `AgentType::Infra` + `AnalysisTaskType::InfraChanges`. InfraAgent always runs — change correlation is a primary RCA signal. |
 | 6 | Webhook authentication (ADR-008) | Done | ADR-008 Accepted 2026-04-21. HMAC-SHA256 middleware (`src/middleware/hmac.rs`) wired on `/api/v1/alerts/azure` only, `{timestamp}.{body}` signed payload with 5-min skew window, constant-time compare via `subtle::ConstantTimeEq`. Config: `WebhookConfig.hmac_secret` (required in staging) + `hmac_skew_seconds` (default 300). 7 integration + 5 unit tests green, clippy `-D warnings` clean. Terraform wired: new `webhook_hmac_secret` var with ≥32-char validation, ACA secret `webhook-hmac-secret`, env `SRE__WEBHOOK__HMAC_SECRET`. Release workflow reads `secrets.SRE_WEBHOOK_HMAC_SECRET` — operator must add this to the GitHub `staging` environment before the next release run. AAD bearer deferred to Phase 2b. |
 | 7 | Remediation safety model (ADR-009 draft) | Draft | ADR-009 in review (2026-04-22) — `docs/adr/009-remediation-safety-model.md`. Threat model (STRIDE + MITRE ATT&CK), RiskLevel enum (ReadOnly/LowRisk/HighRisk/Destructive), auto-approve policy, guardrails, rollback contract, audit schema additions, forward-ref to ADR-011 for identity separation. Implementation is Phase 2c. |
 | 8 | Load test baseline | Not Started | Target: 50 concurrent investigations, P99 < 5s |
@@ -131,8 +131,8 @@
 - [x] Terraform deploys ACA app to staging via GitHub Actions release workflow
 - [x] OpenTelemetry traces flow across orchestrator and all agents
 - [x] PostgreSQL stores full audit history (replaces SQLite)
-- [ ] TraceAgent correlates distributed traces and identifies dependency failures
-- [ ] InfraAgent detects recent deployments/config changes correlated with incidents
+- [x] TraceAgent correlates distributed traces and identifies dependency failures
+- [x] InfraAgent detects recent deployments/config changes correlated with incidents
 - [x] Webhook endpoint authenticated (ADR-008 implemented, 2026-04-21)
 - [ ] Load test baseline established (50 concurrent investigations without degradation)
 
@@ -190,6 +190,8 @@
 - Postgres migration is a hard cut-over: `sqlite` feature dropped from `crates/store/Cargo.toml`, compiler enforces removal of every SQLite call site. No runtime backend selection, no feature-flag hedge
 - Postgres auth in Phase 2a uses password-in-ACA-secret; Managed Identity token auth deferred to ADR-011 follow-up
 - Store tests run against real Postgres via `testcontainers-rs` (both local and CI) — no SQLite in-memory shortcut
+- InfraAgent reads the Azure Activity Log through the Log Analytics `AzureActivity` table (KQL templates, ADR-005) rather than the ARM Activity Log REST API — keeps the read path uniform, template-safe, and reusing the existing `AzureQueryClient`
+- Investigation agent roster is now Triage + Logs + Metrics + Trace + Infra; the orchestrator's `has_agent_type` skip means a recommended agent that isn't registered is silently dropped, so triage can recommend liberally without breaking minimal deployments
 
 ---
 

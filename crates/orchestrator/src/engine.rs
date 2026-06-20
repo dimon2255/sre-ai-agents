@@ -324,6 +324,8 @@ impl Orchestrator {
             let task_type = match agent_type {
                 AgentType::Logs => AnalysisTaskType::ErrorAnalysis,
                 AgentType::Metrics => AnalysisTaskType::PerformanceAnalysis,
+                AgentType::Trace => AnalysisTaskType::TraceCorrelation,
+                AgentType::Infra => AnalysisTaskType::InfraChanges,
                 _ => continue,
             };
 

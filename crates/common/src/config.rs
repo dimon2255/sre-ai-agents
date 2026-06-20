@@ -51,6 +51,26 @@ pub struct AgentsConfig {
     pub triage: AgentConfig,
     pub logs: LogsAgentConfig,
     pub metrics: MetricsAgentConfig,
+    #[serde(default = "default_trace_agent_config")]
+    pub trace: TraceAgentConfig,
+    #[serde(default = "default_infra_agent_config")]
+    pub infra: InfraAgentConfig,
+}
+
+fn default_trace_agent_config() -> TraceAgentConfig {
+    TraceAgentConfig {
+        enabled: true,
+        default_timespan_minutes: 30,
+        max_rows: 50,
+    }
+}
+
+fn default_infra_agent_config() -> InfraAgentConfig {
+    InfraAgentConfig {
+        enabled: true,
+        default_timespan_minutes: 120,
+        max_rows: 50,
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -72,6 +92,25 @@ pub struct MetricsAgentConfig {
     pub enabled: bool,
     /// Default KQL timespan in minutes
     pub default_timespan_minutes: u32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TraceAgentConfig {
+    pub enabled: bool,
+    /// Default KQL timespan in minutes
+    pub default_timespan_minutes: u32,
+    /// Max rows returned per trace-correlation query
+    pub max_rows: u32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct InfraAgentConfig {
+    pub enabled: bool,
+    /// Default KQL timespan in minutes (deployments often precede incidents,
+    /// so this defaults wider than the log/metric agents)
+    pub default_timespan_minutes: u32,
+    /// Max rows returned per Activity Log query
+    pub max_rows: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -339,6 +378,8 @@ impl Default for PlatformConfig {
                     enabled: true,
                     default_timespan_minutes: 30,
                 },
+                trace: default_trace_agent_config(),
+                infra: default_infra_agent_config(),
             },
             webhook: WebhookConfig {
                 listen_addr: "0.0.0.0".to_string(),
