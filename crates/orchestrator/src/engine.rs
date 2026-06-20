@@ -48,6 +48,9 @@ pub struct Orchestrator {
     /// In-memory dedup cache for at-least-once ingest paths (ADR-013).
     /// Mutex is fine: critical sections are O(1) and never cross an await.
     dedup_cache: Arc<Mutex<AlertDedupCache>>,
+    /// Optional gated-remediation pipeline (Phase 2c, ADR-009). `None` unless
+    /// remediation is enabled; set via [`Orchestrator::with_remediation`].
+    remediation: Option<crate::remediation::RemediationPipeline>,
 }
 
 impl Orchestrator {
@@ -65,6 +68,7 @@ impl Orchestrator {
             store,
             event_log,
             dedup_cache: Arc::new(Mutex::new(AlertDedupCache::new(dedup_capacity))),
+            remediation: None,
         }
     }
 
@@ -85,7 +89,56 @@ impl Orchestrator {
             store,
             event_log,
             dedup_cache,
+            remediation: None,
         }
+    }
+
+    /// Attach a gated-remediation pipeline (Phase 2c, ADR-009). Builder style so
+    /// the existing `new` / `new_with_dedup` call sites are unaffected.
+    pub fn with_remediation(mut self, pipeline: crate::remediation::RemediationPipeline) -> Self {
+        self.remediation = Some(pipeline);
+        self
+    }
+
+    /// Run the gated-remediation pipeline for a completed investigation
+    /// (Phase 2c, ADR-009). No-op when remediation is not configured. Returns
+    /// the number of proposals processed. Each lifecycle transition is appended
+    /// to the event log as `AgentPayload::RemediationLifecycle` (insert-only
+    /// audit trail, ADR-009 §7).
+    pub async fn remediate(&self, report: &InvestigationReport) -> usize {
+        let Some(pipeline) = self.remediation.as_ref() else {
+            return 0;
+        };
+        let Some(ctx) = crate::remediation::build_context(report) else {
+            warn!(investigation_id = %report.investigation_id, "could not build remediation context");
+            return 0;
+        };
+        let proposals = pipeline.agent.propose(&ctx);
+        if proposals.is_empty() {
+            return 0;
+        }
+        let now = Utc::now();
+        for proposal in &proposals {
+            let events = pipeline.executor.process(proposal, now).await;
+            for event in &events {
+                let msg = AgentMessage::new(
+                    ctx.investigation_id,
+                    AgentId("sre-gates".to_string()),
+                    MessageTarget::Orchestrator,
+                    AgentPayload::RemediationLifecycle(event.clone()),
+                    1.0,
+                );
+                if let Err(e) = self.event_log.append(&msg).await {
+                    warn!(error = %e, "failed to append remediation audit event");
+                }
+            }
+        }
+        info!(
+            investigation_id = %report.investigation_id,
+            proposals = proposals.len(),
+            "Remediation pipeline processed proposals"
+        );
+        proposals.len()
     }
 
     /// Append an `IngestDeduped` audit message to the event log so the
