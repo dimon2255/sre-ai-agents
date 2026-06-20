@@ -14,6 +14,8 @@ pub struct PlatformConfig {
     pub nats: NatsConfig,
     #[serde(default)]
     pub notifications: NotificationConfig,
+    #[serde(default)]
+    pub grpc: GrpcConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -357,6 +359,36 @@ impl Default for NotificationConfig {
     }
 }
 
+/// gRPC API server configuration (Phase 2b). Disabled by default; runs on a
+/// separate port from the webhook when enabled.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GrpcConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_grpc_listen_addr")]
+    pub listen_addr: String,
+    #[serde(default = "default_grpc_listen_port")]
+    pub listen_port: u16,
+}
+
+fn default_grpc_listen_addr() -> String {
+    "0.0.0.0".to_string()
+}
+
+fn default_grpc_listen_port() -> u16 {
+    50051
+}
+
+impl Default for GrpcConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            listen_addr: default_grpc_listen_addr(),
+            listen_port: default_grpc_listen_port(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ObservabilityConfig {
     #[serde(default)]
@@ -502,6 +534,7 @@ impl Default for PlatformConfig {
             observability: ObservabilityConfig::default(),
             nats: NatsConfig::default(),
             notifications: NotificationConfig::default(),
+            grpc: GrpcConfig::default(),
         }
     }
 }

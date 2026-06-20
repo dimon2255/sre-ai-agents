@@ -53,6 +53,12 @@ hex.workspace = true
 async-nats.workspace = true
 tokio-util.workspace = true
 futures-util.workspace = true
+tonic.workspace = true
+tonic-prost.workspace = true
+prost.workspace = true
+
+[build-dependencies]
+tonic-prost-build.workspace = true
 
 [dev-dependencies]
 reqwest = { workspace = true }
@@ -133,6 +139,12 @@ tokio-util = { version = "0.7", features = ["rt"] }
 
 # Streams (used with async-nats consumer.messages())
 futures-util = "0.3"
+
+# gRPC API (Phase 2b)
+tonic = "0.14"
+tonic-prost = "0.14"
+prost = "0.14"
+tonic-prost-build = "0.14"
 
 # Testing
 wiremock = "0.6"

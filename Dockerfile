@@ -1,7 +1,12 @@
 # Stage 1: Build
 FROM rust:1.88-bookworm AS builder
 WORKDIR /app
-COPY Cargo.toml Cargo.lock ./
+# protoc is required by build.rs to compile the gRPC service definitions (Phase 2b).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+COPY Cargo.toml Cargo.lock build.rs ./
+COPY proto/ proto/
 COPY crates/ crates/
 COPY src/ src/
 COPY config/ config/

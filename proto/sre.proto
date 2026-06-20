@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package sre.v1;
+
+// External integration surface for the SRE agent platform (Phase 2b).
+// Lets other systems trigger investigations and query their results without
+// the Azure Common Alert Schema / webhook path.
+service InvestigationService {
+  // Run an investigation for a resource and return the resulting report.
+  // Synchronous: the response carries the full report JSON.
+  rpc TriggerInvestigation(TriggerInvestigationRequest)
+      returns (TriggerInvestigationResponse);
+
+  // Fetch a previously-run investigation by its id (the workflow UUID
+  // returned by TriggerInvestigation).
+  rpc GetInvestigation(GetInvestigationRequest)
+      returns (GetInvestigationResponse);
+}
+
+message TriggerInvestigationRequest {
+  // ARM resource id or short resource name (required).
+  string resource = 1;
+  // Severity label: Sev0..Sev4. Defaults to Sev3 when empty.
+  string severity = 2;
+  // Signal type: "Metric" | "Log" | "Activity Log". Defaults to Metric.
+  string signal_type = 3;
+  // Free-text description of the condition.
+  string description = 4;
+  // Alert rule name. Defaults to "gRPC trigger".
+  string alert_rule = 5;
+}
+
+message TriggerInvestigationResponse {
+  bool accepted = 1;
+  // Workflow / investigation UUID — pass to GetInvestigation.
+  string investigation_id = 2;
+  // Terminal workflow state: resolved | escalated.
+  string state = 3;
+  // Serialized InvestigationReport (JSON).
+  string report_json = 4;
+  string message = 5;
+}
+
+message GetInvestigationRequest {
+  string investigation_id = 1;
+}
+
+message GetInvestigationResponse {
+  bool found = 1;
+  string investigation_id = 2;
+  string state = 3;
+  string report_json = 4;
+}
