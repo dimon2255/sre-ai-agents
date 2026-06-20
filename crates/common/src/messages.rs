@@ -27,6 +27,9 @@ pub enum AgentType {
     Infra,
     /// Gated remediation proposals (Phase 2c, ADR-009)
     Remediation,
+    /// A third-party agent built on `sre-agent-sdk` (Phase 3, ADR-019). The
+    /// string is the agent's kind, used for routing keys and display.
+    Custom(String),
 }
 
 impl std::fmt::Display for AgentType {
@@ -38,6 +41,7 @@ impl std::fmt::Display for AgentType {
             Self::Trace => write!(f, "trace"),
             Self::Infra => write!(f, "infra"),
             Self::Remediation => write!(f, "remediation"),
+            Self::Custom(kind) => write!(f, "{kind}"),
         }
     }
 }

@@ -1,0 +1,17 @@
+[package]
+name = "sre-agent-sdk"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "SDK for building custom investigation agents for the SRE AI Agents platform"
+
+[dependencies]
+sre-common = { path = "../common" }
+tokio.workspace = true
+async-trait.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true }
+uuid = { workspace = true }

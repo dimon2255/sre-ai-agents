@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 sre-common = { path = "../common" }
 sre-azure = { path = "../azure" }
+sre-agent-sdk = { path = "../agent-sdk" }
 tokio.workspace = true
 async-trait.workspace = true
 tracing.workspace = true

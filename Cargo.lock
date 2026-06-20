@@ -3313,6 +3313,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sre-agent-sdk"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "sre-common",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "sre-agents"
 version = "0.1.0"
 dependencies = [
@@ -3320,6 +3330,7 @@ dependencies = [
  "chrono",
  "serde",
  "serde_json",
+ "sre-agent-sdk",
  "sre-azure",
  "sre-common",
  "thiserror",
