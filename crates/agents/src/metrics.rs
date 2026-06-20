@@ -73,29 +73,33 @@ impl MetricsAgent {
                         let records = table.to_records();
                         if !records.is_empty() {
                             findings.push(
-                                self.analyze_latency_results(&records, &params.resource_name),
+                                self.analyze_latency_results(&records, &params.resource_name)
+                                    .with_source_scope(app_id),
                             );
                         }
                     }
                 }
                 Err(e) => {
                     warn!(app_id, error = %e, "Latency analysis query failed");
-                    findings.push(Finding {
-                        category: FindingCategory::Informational,
-                        severity: FindingSeverity::Low,
-                        title: "Metrics query failed".to_string(),
-                        description: format!(
-                            "Failed to query metrics for App Insights {app_id}: {e}"
-                        ),
-                        confidence: 1.0,
-                        observed_at: None,
-                        source_agent: self.id.to_string(),
-                        evidence: vec![],
-                        suggestions: vec![
-                            "Verify App Insights application ID is correct".to_string(),
-                            "Check RBAC permissions (Monitoring Reader)".to_string(),
-                        ],
-                    });
+                    findings.push(
+                        Finding {
+                            category: FindingCategory::Informational,
+                            severity: FindingSeverity::Low,
+                            title: "Metrics query failed".to_string(),
+                            description: format!(
+                                "Failed to query metrics for App Insights {app_id}: {e}"
+                            ),
+                            confidence: 1.0,
+                            observed_at: None,
+                            source_agent: self.id.to_string(),
+                            evidence: vec![],
+                            suggestions: vec![
+                                "Verify App Insights application ID is correct".to_string(),
+                                "Check RBAC permissions (Monitoring Reader)".to_string(),
+                            ],
+                        }
+                        .with_source_scope(app_id),
+                    );
                 }
             }
 
@@ -128,7 +132,8 @@ impl MetricsAgent {
                         let records = table.to_records();
                         if !records.is_empty() {
                             findings.push(
-                                self.analyze_failure_results(&records, &params.resource_name),
+                                self.analyze_failure_results(&records, &params.resource_name)
+                                    .with_source_scope(app_id),
                             );
                         }
                     }
@@ -171,7 +176,7 @@ impl MetricsAgent {
                             if let Some(finding) =
                                 self.analyze_dependency_results(&records, &params.resource_name)
                             {
-                                findings.push(finding);
+                                findings.push(finding.with_source_scope(app_id));
                             }
                         }
                     }
@@ -421,14 +426,22 @@ impl SreAgent for MetricsAgent {
                         findings.iter().map(|f| f.confidence).sum::<f64>() / findings.len() as f64
                     };
 
+                    let scope_note = if self.app_insights_ids.len() > 1 {
+                        format!(
+                            " across {} App Insights applications",
+                            self.app_insights_ids.len()
+                        )
+                    } else {
+                        String::new()
+                    };
                     let summary = if findings.is_empty() {
                         format!(
-                            "No significant metric anomalies found for {}",
+                            "No significant metric anomalies found for {}{scope_note}",
                             task.params.resource_name
                         )
                     } else {
                         format!(
-                            "Found {} metric findings for {}",
+                            "Found {} metric findings for {}{scope_note}",
                             findings.len(),
                             task.params.resource_name
                         )

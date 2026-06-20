@@ -69,6 +69,35 @@ impl std::fmt::Display for FindingSeverity {
     }
 }
 
+impl Finding {
+    /// Tag this finding with the data scope it was produced from — a Log
+    /// Analytics workspace id or an App Insights application id (Phase 3
+    /// multi-workspace investigation, ADR-020). Attaches the scope as evidence so
+    /// a finding surfaced from one of several workspaces is attributable.
+    pub fn with_source_scope(mut self, scope: &str) -> Self {
+        self.evidence.push(Evidence {
+            evidence_type: EvidenceType::QueryResult,
+            label: "source_scope".to_string(),
+            data: serde_json::json!({ "scope": scope }),
+        });
+        self
+    }
+
+    /// The source scopes (workspace / app ids) tagged on this finding, if any.
+    pub fn source_scopes(&self) -> Vec<String> {
+        self.evidence
+            .iter()
+            .filter(|e| e.label == "source_scope")
+            .filter_map(|e| {
+                e.data
+                    .get("scope")
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+            })
+            .collect()
+    }
+}
+
 /// Supporting evidence attached to a finding
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Evidence {
