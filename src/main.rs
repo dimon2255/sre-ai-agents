@@ -493,6 +493,14 @@ async fn run_server(config: PlatformConfig) -> anyhow::Result<()> {
         }
     });
 
+    // Notification engine (Phase 2b): delivers reports/escalations to
+    // Slack/Teams/PagerDuty. `None` when notifications are disabled.
+    let notification_engine =
+        sre_notify::NotificationEngine::from_config(&config.notifications).map(Arc::new);
+    if notification_engine.is_some() {
+        info!("Notification engine enabled");
+    }
+
     // Orchestrator dispatch loop — spawns each investigation as a separate
     // task, gated by a semaphore for concurrency control.
     let orch_semaphore = investigations.clone();
@@ -501,6 +509,7 @@ async fn run_server(config: PlatformConfig) -> anyhow::Result<()> {
         info!("Orchestrator loop started (max_concurrent={max_concurrent})");
         while let Some(alert_info) = alert_rx.recv().await {
             let alert_id = alert_info.alert_id.clone();
+            let notifier = notification_engine.clone();
 
             // Acquire semaphore permit before spawning investigation
             let permit = match orch_semaphore.clone().acquire_owned().await {
@@ -528,6 +537,12 @@ async fn run_server(config: PlatformConfig) -> anyhow::Result<()> {
                             duration_ms = report.duration_ms,
                             "Investigation complete"
                         );
+                        if let Some(engine) = notifier {
+                            let delivered = engine.notify_report(&report).await;
+                            if delivered > 0 {
+                                info!(alert_id = %alert_id, delivered, "Notifications delivered");
+                            }
+                        }
                     }
                     Err(e) => {
                         error!(alert_id = %alert_id, error = %e, "Investigation failed");

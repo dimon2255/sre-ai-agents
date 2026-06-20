@@ -78,3 +78,18 @@ database_url = "postgres://postgres:password@localhost:5432/sre_agents"
 # dlq_subject_filter = "alerts.dlq.azure.>"
 # dlq_subject = "alerts.dlq.azure.poison"
 # dlq_max_age_hours = 168
+
+# Notification engine (Phase 2b). Delivers investigation reports + escalations
+# to Slack / Teams / PagerDuty. Disabled by default. When enabled with no
+# provider configured, a logging mock notifier is used (dev). Provider secrets
+# should be supplied via env, e.g. SRE__NOTIFICATIONS__SLACK__WEBHOOK_URL.
+# [notifications]
+# enabled = false
+# min_severity = "high"          # critical | high | medium | low | info
+# notify_on_escalation = true
+# [notifications.slack]
+# webhook_url = "https://hooks.slack.com/services/XXX/YYY/ZZZ"
+# [notifications.teams]
+# webhook_url = "https://outlook.office.com/webhook/XXX"
+# [notifications.pagerduty]
+# routing_key = "R0UT1NGK3Y"

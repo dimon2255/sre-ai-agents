@@ -12,6 +12,8 @@ pub struct PlatformConfig {
     pub observability: ObservabilityConfig,
     #[serde(default)]
     pub nats: NatsConfig,
+    #[serde(default)]
+    pub notifications: NotificationConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -293,6 +295,68 @@ impl Default for NatsConfig {
     }
 }
 
+/// Notification engine configuration. Delivers investigation reports and
+/// escalations to chat/paging destinations. Each provider is enabled only
+/// when its secret/URL is present; when `enabled` is true but no provider is
+/// configured, a logging mock notifier is used (dev affordance).
+#[derive(Debug, Clone, Deserialize)]
+pub struct NotificationConfig {
+    /// Master switch. When `false`, no notification engine is built.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Minimum report severity to notify on: `critical|high|medium|low|info`.
+    #[serde(default = "default_notify_min_severity")]
+    pub min_severity: String,
+    /// Always notify when an investigation escalates, regardless of severity.
+    #[serde(default = "default_true")]
+    pub notify_on_escalation: bool,
+    /// Slack incoming-webhook destination (secret via env).
+    #[serde(default)]
+    pub slack: Option<SlackConfig>,
+    /// Microsoft Teams incoming-webhook destination (secret via env).
+    #[serde(default)]
+    pub teams: Option<TeamsConfig>,
+    /// PagerDuty Events API v2 destination (routing key via env).
+    #[serde(default)]
+    pub pagerduty: Option<PagerDutyConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SlackConfig {
+    pub webhook_url: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TeamsConfig {
+    pub webhook_url: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PagerDutyConfig {
+    pub routing_key: String,
+}
+
+fn default_notify_min_severity() -> String {
+    "high".to_string()
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for NotificationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            min_severity: default_notify_min_severity(),
+            notify_on_escalation: true,
+            slack: None,
+            teams: None,
+            pagerduty: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ObservabilityConfig {
     #[serde(default)]
@@ -437,6 +501,7 @@ impl Default for PlatformConfig {
             },
             observability: ObservabilityConfig::default(),
             nats: NatsConfig::default(),
+            notifications: NotificationConfig::default(),
         }
     }
 }
