@@ -80,6 +80,34 @@ impl WorkflowStore for PgStore {
         Ok(())
     }
 
+    #[tracing::instrument(
+        skip(self, workflow),
+        fields(workflow_id = %workflow.id, alert_id = %workflow.alert_id)
+    )]
+    async fn try_create_workflow(&self, workflow: &WorkflowRecord) -> Result<bool, StoreError> {
+        let result = sqlx::query(
+            r#"
+            INSERT INTO workflows (id, state, alert_id, affected_resource, severity, created_at, updated_at)
+            VALUES ($1, $2::workflow_state, $3, $4, $5::alert_severity, $6, $7)
+            ON CONFLICT (alert_id) DO NOTHING
+            "#,
+        )
+        .bind(workflow.id)
+        .bind(workflow.state.to_string())
+        .bind(&workflow.alert_id)
+        .bind(&workflow.affected_resource)
+        .bind(workflow.severity.as_label())
+        .bind(workflow.created_at)
+        .bind(workflow.updated_at)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| StoreError::Database(e.to_string()))?;
+
+        let inserted = result.rows_affected() == 1;
+        debug!(workflow_id = %workflow.id, inserted, "try_create_workflow");
+        Ok(inserted)
+    }
+
     #[tracing::instrument(skip(self), fields(workflow_id = %workflow_id, new_state = ?state))]
     async fn update_state(
         &self,

@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 
 use axum::routing::{get, post};
@@ -129,6 +129,9 @@ async fn setup_test_server_with_config(
         investigations,
         started,
         config,
+        nats_status: Arc::new(AtomicU8::new(
+            sre_agents_platform::ingest::nats::NatsIngestorState::Disabled as u8,
+        )),
     };
 
     // Use production handlers

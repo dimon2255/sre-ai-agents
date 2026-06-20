@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -9,11 +9,13 @@ use axum::Json;
 use tokio::sync::{mpsc, Semaphore};
 use tracing::{info, warn};
 
-use sre_azure::alerts_client::AzureAlertsClient;
 use sre_azure::models::AzureCommonAlert;
 use sre_common::config::PlatformConfig;
 use sre_common::messages::AlertInfo;
 use sre_store::PgStore;
+
+use crate::ingest::nats::NatsIngestorState;
+use crate::ingest::{parse_and_enqueue, IngestError, IngestOutcome};
 
 /// Shared application state for axum handlers and background tasks.
 ///
@@ -37,6 +39,10 @@ pub struct AppState {
     pub started: Arc<AtomicBool>,
     /// Platform configuration (for self_resource_id check).
     pub config: PlatformConfig,
+    /// Current NATS ingestor state (ADR-013). Reported by `/readyz` for
+    /// operator visibility but never fails the probe — the webhook is the
+    /// safety net, so a NATS outage must not stop traffic.
+    pub nats_status: Arc<AtomicU8>,
 }
 
 /// Webhook handler for Azure Alert action group callbacks.
@@ -69,50 +75,27 @@ pub async fn handle_azure_alert(
         "Received Azure alert webhook"
     );
 
-    let alert_info = match AzureAlertsClient::parse_common_alert(&payload) {
-        Ok(info) => info,
-        Err(e) => {
-            warn!(error = %e, "Failed to parse alert payload");
-            return Err(StatusCode::BAD_REQUEST);
-        }
-    };
-
     let span = tracing::Span::current();
-    span.record("alert_id", tracing::field::display(&alert_info.alert_id));
-    span.record(
-        "affected_resource",
-        tracing::field::display(&alert_info.affected_resource),
-    );
-
-    // Self-exclusion filter: break the OTLP feedback loop (ADR-007).
-    // If the alert targets the platform's own resource, acknowledge but don't investigate.
-    if let Some(ref self_id) = state.config.webhook.self_resource_id {
-        if alert_info.affected_resource == *self_id {
-            warn!(
-                alert_id = %alert_info.alert_id,
-                resource = %alert_info.affected_resource,
-                "Ignoring self-referential alert — breaks OTLP feedback loop"
-            );
-            return Ok(StatusCode::OK);
-        }
+    if let Some(target) = payload.data.essentials.alert_target_i_ds.first() {
+        span.record("affected_resource", tracing::field::display(target));
     }
-
-    info!(
-        alert_id = %alert_info.alert_id,
-        resource = %alert_info.affected_resource,
-        severity = %alert_info.severity,
-        "Alert parsed — queuing investigation"
+    span.record(
+        "alert_id",
+        tracing::field::display(&payload.data.essentials.alert_id),
     );
 
-    // try_send: never block the HTTP handler. If the channel is full,
-    // return 503 so Azure Action Groups retry with backoff.
-    match state.alert_tx.try_send(alert_info) {
-        Ok(()) => Ok(StatusCode::ACCEPTED),
-        Err(mpsc::error::TrySendError::Full(_)) => {
+    match parse_and_enqueue(&payload, &state.alert_tx, &state.config) {
+        Ok(IngestOutcome::Accepted) => Ok(StatusCode::ACCEPTED),
+        Ok(IngestOutcome::Ignored) => Ok(StatusCode::OK),
+        Err(IngestError::Parse(reason)) => {
+            warn!(error = %reason, "Failed to parse alert payload");
+            Err(StatusCode::BAD_REQUEST)
+        }
+        Err(IngestError::ChannelFull) => {
             warn!("Alert channel full — returning 503 for Azure retry");
             Err(StatusCode::SERVICE_UNAVAILABLE)
         }
-        Err(mpsc::error::TrySendError::Closed(_)) => {
+        Err(IngestError::ChannelClosed) => {
             warn!("Alert channel closed — orchestrator loop has stopped");
             Err(StatusCode::SERVICE_UNAVAILABLE)
         }
@@ -155,6 +138,9 @@ pub async fn healthz(State(state): State<AppState>) -> StatusCode {
 /// Readiness probe — can the service accept new alerts right now?
 /// ACA behaviour on failure: **stops routing traffic**, container stays alive.
 /// Returns JSON body with reasons on failure so operators can diagnose.
+///
+/// NATS ingestor state (ADR-013) is reported in the body for visibility
+/// but never affects the probe outcome — the webhook is the safety net.
 pub async fn readyz(State(state): State<AppState>) -> impl IntoResponse {
     let mut reasons: Vec<&str> = Vec::new();
 
@@ -180,13 +166,26 @@ pub async fn readyz(State(state): State<AppState>) -> impl IntoResponse {
         reasons.push("database unreachable");
     }
 
+    let nats_state = NatsIngestorState::from_u8(state.nats_status.load(Ordering::Relaxed));
+
     if reasons.is_empty() {
-        (StatusCode::OK, Json(serde_json::json!({"ready": true}))).into_response()
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "ready": true,
+                "nats": nats_state.as_str(),
+            })),
+        )
+            .into_response()
     } else {
-        warn!(?reasons, "Readiness check failed");
+        warn!(?reasons, nats = %nats_state.as_str(), "Readiness check failed");
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({"ready": false, "reasons": reasons})),
+            Json(serde_json::json!({
+                "ready": false,
+                "reasons": reasons,
+                "nats": nats_state.as_str(),
+            })),
         )
             .into_response()
     }

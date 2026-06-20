@@ -37,22 +37,29 @@ opentelemetry_sdk.workspace = true
 opentelemetry-otlp.workspace = true
 clap.workspace = true
 axum.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 anyhow.workspace = true
+thiserror.workspace = true
 config.workspace = true
 hmac.workspace = true
 sha2.workspace = true
 subtle.workspace = true
 hex.workspace = true
+async-nats.workspace = true
+tokio-util.workspace = true
+futures-util.workspace = true
 
 [dev-dependencies]
 reqwest = { workspace = true }
 tokio = { workspace = true }
 serde_json.workspace = true
 sqlx = { workspace = true }
-testcontainers-modules.workspace = true
+testcontainers-modules = { workspace = true, features = ["postgres", "nats"] }
+futures-util.workspace = true
+bytes = "1"
 
 [workspace.package]
 version = "0.1.0"
@@ -115,6 +122,15 @@ hmac = "0.12"
 sha2 = "0.10"
 subtle = "2.5"
 hex = "0.4"
+
+# NATS JetStream client (ADR-013)
+async-nats = "0.48"
+
+# Cancellation tokens for graceful shutdown
+tokio-util = { version = "0.7", features = ["rt"] }
+
+# Streams (used with async-nats consumer.messages())
+futures-util = "0.3"
 
 # Testing
 wiremock = "0.6"

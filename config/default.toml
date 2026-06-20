@@ -42,6 +42,22 @@ database_url = "postgres://postgres:password@localhost:5432/sre_agents"
 
 # [observability]
 # enabled = false
-# otlp_endpoint = "http://localhost:4318"
+# otlp_endpoint = "http://localhost:4317"   # gRPC OTLP (ACA env-managed agent listens here, NOT 4318)
 # service_name = "sre-agents-platform"
 # environment = "staging"
+
+# NATS JetStream ingestion (ADR-013).
+# When disabled, the platform behaves exactly as before — only the webhook receives alerts.
+# In staging/prod, set credentials_path to a NATS NKEY/JWT credentials file.
+# [nats]
+# enabled = false
+# url = "nats://localhost:4222"
+# credentials_path = "/secrets/nats.creds"
+# stream_name = "sre-alerts"
+# consumer_name = "sre-orchestrator"
+# subject_filter = "alerts.azure.>"
+# max_ack_pending = 64
+# ack_wait_secs = 60
+# max_deliver = 5
+# max_age_hours = 24
+# num_replicas = 1

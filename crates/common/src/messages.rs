@@ -117,6 +117,32 @@ pub enum AgentPayload {
     HealthCheck,
     /// Agent -> Orchestrator: health check response
     HealthStatus(AgentHealth),
+    /// Boundary event: ingestion skipped a duplicate alert (ADR-013).
+    /// Recorded in the event log so the audit trail isn't silent on
+    /// duplicates from the at-least-once NATS path or webhook retries.
+    IngestDeduped(IngestDedupedNotice),
+}
+
+/// Audit payload recorded when ingestion drops a duplicate alert.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IngestDedupedNotice {
+    /// The duplicated alert ID.
+    pub alert_id: String,
+    /// Affected resource from the alert payload.
+    pub affected_resource: String,
+    /// Where the dedup decision was made — see [`DedupSource`].
+    pub source: DedupSource,
+}
+
+/// Layer at which a duplicate was detected.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DedupSource {
+    /// In-memory LRU hit (intra-replica fast path).
+    InMemoryLru,
+    /// Database UNIQUE constraint conflict on workflows.alert_id
+    /// (cross-replica / cross-path authoritative gate).
+    DbUniqueConstraint,
 }
 
 /// Context for a new investigation, typically from an Azure alert

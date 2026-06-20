@@ -12,6 +12,13 @@ pub trait WorkflowStore: Send + Sync {
     /// Create a new workflow record
     async fn create_workflow(&self, workflow: &WorkflowRecord) -> Result<(), StoreError>;
 
+    /// Attempt to create a workflow record, returning `Ok(true)` on insert
+    /// and `Ok(false)` when an existing workflow with the same `alert_id`
+    /// already exists. This is the cross-replica dedup gate (ADR-013) —
+    /// the in-memory LRU is a fast path in front of this; the DB unique
+    /// constraint is the authoritative record.
+    async fn try_create_workflow(&self, workflow: &WorkflowRecord) -> Result<bool, StoreError>;
+
     /// Update workflow state
     async fn update_state(
         &self,

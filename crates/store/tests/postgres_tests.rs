@@ -29,7 +29,7 @@ fn make_workflow() -> WorkflowRecord {
     WorkflowRecord {
         id: Uuid::new_v4(),
         state: WorkflowState::Created,
-        alert_id: "test-alert-123".to_string(),
+        alert_id: format!("test-alert-{}", Uuid::new_v4()),
         affected_resource: "payments-service".to_string(),
         severity: AlertSeverity::Sev1,
         created_at: now,
@@ -55,12 +55,13 @@ async fn test_create_and_get_workflow() {
     let (store, _container) = create_test_store().await;
     let workflow = make_workflow();
     let id = workflow.id;
+    let alert_id = workflow.alert_id.clone();
 
     store.create_workflow(&workflow).await.unwrap();
 
     let retrieved = store.get_workflow(&id).await.unwrap().unwrap();
     assert_eq!(retrieved.id, id);
-    assert_eq!(retrieved.alert_id, "test-alert-123");
+    assert_eq!(retrieved.alert_id, alert_id);
     assert_eq!(retrieved.affected_resource, "payments-service");
     assert!(matches!(retrieved.state, WorkflowState::Created));
     assert!(matches!(retrieved.severity, AlertSeverity::Sev1));

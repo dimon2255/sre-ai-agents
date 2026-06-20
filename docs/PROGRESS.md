@@ -138,14 +138,14 @@
 
 ### Phase 2b — Scaling Infrastructure (3-4 weeks)
 
-**Status**: Not Started
+**Status**: In Progress (started 2026-05-18)
 
 | # | Component | Status | Notes |
 |---|-----------|--------|-------|
-| 1 | NATS JetStream integration (ADR-010) | Not Started | Event bus replacing mpsc channels |
-| 2 | Horizontal scaling (multi-replica) | Not Started | Requires NATS for work distribution |
+| 1 | NATS JetStream ingestion (ADR-013) — PR-1 of 3 | In Progress | Branch `feat/nats-jetstream-ingest`. ADR-013 written. Parallel ingestion path: webhook stays, NATS adds durable/replayable ingest. Boundary held at `mpsc::Sender<AlertInfo>` — orchestrator and agents are untouched. PR-1 ships: ADR, NatsConfig, `parse_and_enqueue` shared helper, `src/ingest/nats.rs` with backpressure (no-ack-until-enqueued) + `CancellationToken` graceful shutdown, `AlertDedupCache` (FIFO, in-memory) on `Orchestrator::investigate()`, testcontainers smoke test (`tests/nats_ingest.rs`). PR-2: OTel metrics. PR-3: DLQ stream. |
+| 2 | Horizontal scaling (multi-replica) | Not Started | Requires NATS work distribution (post-PR-3) |
 | 3 | Notification Engine (Slack, Teams, PagerDuty) | Not Started | Rides on NATS subjects |
-| 4 | InboundMessage serialization migration | Not Started | Replace `mpsc::Sender` with NATS reply subject |
+| 4 | InboundMessage serialization migration | Deferred | Not needed for ingestion-only NATS. Required only when **agent replies** cross NATS (Phase 3 concern). ADR-013 explicitly keeps `InboundMessage.reply_tx` as `mpsc::Sender` for now. |
 | 5 | gRPC API (external integration surface) | Not Started | tonic-based API for external systems |
 
 #### Phase 2b Exit Criteria
@@ -238,8 +238,10 @@
 | [ADR-007](adr/007-cicd-containerization-aca-deployment.md) | CI/CD, Containerization, ACA Deployment | Accepted |
 | [ADR-008](adr/008-webhook-authentication.md) | Webhook Authentication (HMAC-SHA256) | Accepted (2026-04-21) |
 | [ADR-009](adr/009-remediation-safety-model.md) | Remediation Safety Model | Draft (2026-04-22) |
-| ADR-010 | NATS JetStream Design | Planned (Phase 2b) |
+| ADR-010 | NATS JetStream Design | Superseded by ADR-013 |
 | ADR-011 | Identity Separation for Remediation | Planned (Phase 2c) |
+| [ADR-012](adr/012-schema-type-modernization.md) | Schema Type Modernization | Accepted (2026-04-19) |
+| [ADR-013](adr/013-nats-jetstream-ingest.md) | NATS JetStream as Parallel Ingestion Path | Proposed (2026-05-18) |
 
 ---
 

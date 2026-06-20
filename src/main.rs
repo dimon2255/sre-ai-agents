@@ -1,7 +1,8 @@
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::Context;
 use axum::extract::DefaultBodyLimit;
 use axum::routing::{get, post};
 use axum::Router;
@@ -24,7 +25,9 @@ use sre_store::PgStore;
 
 use crate::middleware::hmac::{self as hmac_auth, HmacAuth};
 use crate::webhook::AppState;
+use tokio_util::sync::CancellationToken;
 
+mod ingest;
 mod middleware;
 mod webhook;
 
@@ -91,6 +94,8 @@ async fn main() -> anyhow::Result<()> {
             service = %config.observability.service_name,
             "OpenTelemetry tracing enabled"
         );
+
+        probe_otel_exporter(&provider);
         Some(provider)
     } else {
         Registry::default().with(env_filter).with(fmt_layer).init();
@@ -129,36 +134,70 @@ fn load_config(path: &str) -> anyhow::Result<PlatformConfig> {
     Ok(config)
 }
 
-/// Initialize an OpenTelemetry tracer provider with OTLP HTTP exporter
+/// Initialize an OpenTelemetry tracer provider with the OTLP gRPC exporter.
+///
+/// The ACA env-managed OpenTelemetry agent on `acaenv-sre-agents-staging`
+/// auto-injects `OTEL_EXPORTER_OTLP_ENDPOINT` into each pod (currently
+/// `http://k8se-otel.k8se-apps.svc.cluster.local:4317`). When the app
+/// config leaves `otlp_endpoint` empty (the default), we let the OTel SDK
+/// read that env var. If the app config sets a non-empty value, it takes
+/// precedence (useful for local dev pointing at a custom collector).
+///
+/// Do NOT hardcode `http://localhost:4317` — that points at nothing in an
+/// ACA pod and the export will silently fail with `Connection refused`.
 fn init_tracer_provider(obs_config: &ObservabilityConfig) -> anyhow::Result<SdkTracerProvider> {
     use opentelemetry::KeyValue;
     use opentelemetry_otlp::{SpanExporter, WithExportConfig};
     use opentelemetry_sdk::Resource;
 
-    let resource = Resource::builder()
-        .with_attributes([
-            KeyValue::new("service.name", obs_config.service_name.clone()),
-            KeyValue::new("service.version", env!("CARGO_PKG_VERSION").to_string()),
-            KeyValue::new("deployment.environment", obs_config.environment.clone()),
-        ])
-        .build();
+    let mut attrs = vec![
+        KeyValue::new("service.name", obs_config.service_name.clone()),
+        KeyValue::new("service.version", env!("CARGO_PKG_VERSION").to_string()),
+        KeyValue::new("deployment.environment", obs_config.environment.clone()),
+    ];
+    // ACA's env-managed OTel agent emits the literal placeholder
+    // `$(CONTAINER_APP_REPLICA_NAME)` for service.instance.id otherwise.
+    if let Ok(replica) = std::env::var("CONTAINER_APP_REPLICA_NAME") {
+        if !replica.is_empty() {
+            attrs.push(KeyValue::new("service.instance.id", replica));
+        }
+    }
+    let resource = Resource::builder().with_attributes(attrs).build();
 
-    let traces_endpoint = format!(
-        "{}/v1/traces",
-        obs_config.otlp_endpoint.trim_end_matches('/')
-    );
-
-    let http_exporter = SpanExporter::builder()
-        .with_http()
-        .with_endpoint(&traces_endpoint)
-        .build()?;
+    let mut builder = SpanExporter::builder().with_tonic();
+    let endpoint = obs_config.otlp_endpoint.trim_end_matches('/');
+    if !endpoint.is_empty() {
+        builder = builder.with_endpoint(endpoint);
+    }
+    let grpc_exporter = builder.build()?;
 
     let provider = SdkTracerProvider::builder()
         .with_resource(resource)
-        .with_batch_exporter(http_exporter)
+        .with_batch_exporter(grpc_exporter)
         .build();
 
     Ok(provider)
+}
+
+/// Emit one synthetic span at startup and force-flush the exporter.
+///
+/// Same startup check as the `probeExporter` pattern common in Go OTel
+/// services. Without this, silent export
+/// failures — e.g. wrong endpoint, unreachable agent — only surface
+/// hours later as "no spans in App Insights."
+fn probe_otel_exporter(provider: &SdkTracerProvider) {
+    use opentelemetry::trace::{Tracer, TracerProvider as _};
+
+    let tracer = provider.tracer("telemetry.bootstrap");
+    tracer.in_span("otel.bootstrap.probe", |_| {});
+
+    match provider.force_flush() {
+        Ok(()) => info!("OpenTelemetry boot probe flushed successfully"),
+        Err(e) => warn!(
+            error = %e,
+            "OpenTelemetry boot probe flush failed — spans may be silently dropped"
+        ),
+    }
 }
 
 /// Spawn a single agent and register its handle with the router.
@@ -260,6 +299,16 @@ async fn run_server(config: PlatformConfig) -> anyhow::Result<()> {
     // Alert channel: webhook handler sends, orchestrator loop receives
     let (alert_tx, mut alert_rx) = mpsc::channel::<AlertInfo>(config.webhook.channel_capacity);
 
+    // Clone retained for the NATS ingestor (ADR-013) — must capture before
+    // `alert_tx` is moved into `AppState` for axum's `.with_state(...)`.
+    let nats_alert_tx = alert_tx.clone();
+
+    // Shared NATS ingestor state for `/readyz` reporting (ADR-013).
+    // Disabled by default; the spawn branch promotes it to Connecting.
+    let nats_status = Arc::new(AtomicU8::new(
+        ingest::nats::NatsIngestorState::Disabled as u8,
+    ));
+
     let app_state = AppState {
         alert_tx,
         store,
@@ -267,6 +316,7 @@ async fn run_server(config: PlatformConfig) -> anyhow::Result<()> {
         investigations: investigations.clone(),
         started: started.clone(),
         config: config.clone(),
+        nats_status: nats_status.clone(),
     };
 
     // HMAC auth is applied ONLY to the alert route (ADR-008). Health probes
@@ -307,6 +357,52 @@ async fn run_server(config: PlatformConfig) -> anyhow::Result<()> {
     // Arc-wrap the orchestrator so investigations can run concurrently.
     // investigate() takes &self, so multiple tasks can share the Arc safely.
     let orchestrator = Arc::new(orchestrator);
+
+    // Shared cancellation token (ADR-013).
+    // - tripped by Ctrl+C in axum's with_graceful_shutdown closure
+    // - watched by the NATS ingestor for graceful drain
+    let cancel = CancellationToken::new();
+
+    // Spawn the NATS JetStream ingestor when enabled (ADR-013).
+    // Both ingestion paths terminate at the same `alert_tx` channel; the
+    // webhook continues to receive alerts even if NATS is disabled or down.
+    //
+    // Two startup gates run before the task is spawned:
+    //   1. Credentials policy (#11) — refuse to start if running outside a
+    //      dev environment without a credentials file. Anonymous connections
+    //      are local-dev only.
+    //   2. Preflight (#10) — bounded connection test, so a typo in the URL
+    //      or an unreachable server fails fast instead of hanging quietly
+    //      in the background while the rest of the platform looks healthy.
+    let nats_join = if config.nats.enabled {
+        enforce_nats_credentials_policy(&config)?;
+        ingest::nats::preflight(&config.nats)
+            .await
+            .context("NATS preflight failed — refusing to start ingestor")?;
+
+        let nats_cfg = config.nats.clone();
+        let platform_cfg = config.clone();
+        let nats_cancel = cancel.clone();
+        let nats_status_task = nats_status.clone();
+        Some(tokio::spawn(async move {
+            if let Err(e) = ingest::nats::run(
+                nats_cfg,
+                platform_cfg,
+                nats_alert_tx,
+                nats_cancel,
+                nats_status_task,
+            )
+            .await
+            {
+                error!(error = %e, "NATS ingestor exited with error — webhook path remains active");
+            }
+        }))
+    } else {
+        // Drop the unused clone so the channel sender count stays accurate.
+        drop(nats_alert_tx);
+        info!("NATS ingestion disabled (nats.enabled=false) — webhook is the only ingestion path");
+        None
+    };
 
     // Heartbeat tick — independent of investigations so liveness probe
     // stays healthy even during long-running Azure API calls.
@@ -375,33 +471,89 @@ async fn run_server(config: PlatformConfig) -> anyhow::Result<()> {
     // When axum shuts down, it drops all AppState clones, which drops
     // every alert_tx clone. This closes the channel and the dispatch
     // loop exits naturally (recv returns None).
+    //
+    // Before axum drains, we trip the shared cancellation token (ADR-013)
+    // so the NATS ingestor stops fetching new messages and drops its
+    // alert_tx clone. Without this, the dispatch loop would stay alive
+    // as long as the NATS task held the channel open.
+    let shutdown_cancel = cancel.clone();
     axum::serve(listener, app)
-        .with_graceful_shutdown(async {
+        .with_graceful_shutdown(async move {
             tokio::signal::ctrl_c().await.ok();
-            info!("Shutting down — stopping new requests...");
+            info!("Shutdown signal received — tripping cancellation token");
+            shutdown_cancel.cancel();
         })
         .await?;
 
-    // Drain in-flight investigations: wait until all semaphore permits
-    // are returned (i.e., all spawned investigations have completed).
-    // ACA sends SIGTERM and waits 30s — use 25s deadline to leave margin.
+    // Drain NATS ingestor and in-flight investigations concurrently under a
+    // single shared deadline. ACA gives us 30s after SIGTERM before it
+    // SIGKILLs the container; budgeting them serially (10s + 25s) would
+    // overrun the grace window. Both drains are independent — NATS is
+    // already stopping fetching, and investigations finish on their own
+    // tasks — so running them in parallel is strictly faster.
     let drain_max = config.orchestrator.max_concurrent_investigations;
     info!(
         max_concurrent = drain_max,
-        "Draining in-flight investigations..."
+        "Draining NATS ingestor and in-flight investigations..."
     );
+
+    let nats_drain = async {
+        if let Some(join) = nats_join {
+            match join.await {
+                Ok(()) => info!("NATS ingestor stopped cleanly"),
+                Err(e) => warn!(error = %e, "NATS ingestor task panicked during drain"),
+            }
+        }
+    };
+    let investigations_drain = async {
+        match investigations.acquire_many(drain_max).await {
+            Ok(_permits) => info!("All investigations drained cleanly"),
+            Err(_) => info!("Investigation semaphore closed during drain"),
+        }
+    };
+
     match tokio::time::timeout(
         Duration::from_secs(25),
-        investigations.acquire_many(drain_max),
+        futures_util::future::join(nats_drain, investigations_drain),
     )
     .await
     {
-        Ok(Ok(_permits)) => info!("All investigations drained cleanly"),
-        Ok(Err(_)) => info!("Investigation semaphore closed during drain"),
-        Err(_) => warn!("Drain deadline exceeded — some investigations may be lost"),
+        Ok(_) => info!("Shutdown drains completed within deadline"),
+        Err(_) => warn!(
+            "Shutdown drain deadline exceeded — NATS ingestor or in-flight \
+             investigations may not have completed cleanly"
+        ),
     }
 
     Ok(())
+}
+
+/// Refuse to start when running outside dev with NATS enabled and no
+/// credentials configured (#11). Anonymous connections are a local-dev
+/// affordance only — staging and production must use NKEY/JWT.
+fn enforce_nats_credentials_policy(config: &PlatformConfig) -> anyhow::Result<()> {
+    if !config.nats.enabled {
+        return Ok(());
+    }
+    if config.nats.credentials_path.is_some() {
+        return Ok(());
+    }
+
+    // `observability.environment` is the canonical deployment-environment
+    // signal already wired through Terraform (`SRE__OBSERVABILITY__ENVIRONMENT`).
+    // Reuse it here rather than introducing a parallel notion of "env".
+    let env = config.observability.environment.to_lowercase();
+    let dev_envs = ["dev", "development", "local", "test"];
+    if dev_envs.iter().any(|d| env == *d) {
+        return Ok(());
+    }
+
+    anyhow::bail!(
+        "NATS is enabled in environment='{}' but nats.credentials_path is not set. \
+         Anonymous NATS connections are permitted only in dev/local. Set \
+         SRE__NATS__CREDENTIALS_PATH or disable NATS (SRE__NATS__ENABLED=false).",
+        config.observability.environment
+    )
 }
 
 /// Run a manual investigation from the CLI

@@ -1,8 +1,10 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use chrono::Utc;
 use tokio::sync::mpsc;
 use tracing::{error, info, instrument, warn};
+use uuid::Uuid;
 
 use sre_common::config::PlatformConfig;
 use sre_common::errors::OrchestratorError;
@@ -12,9 +14,17 @@ use sre_store::models::WorkflowState;
 use sre_store::traits::{EventLog, WorkflowStore};
 
 use crate::aggregator::FindingAggregator;
+use crate::dedup::AlertDedupCache;
 use crate::router::AgentRouter;
 use crate::timeout;
 use crate::workflow::InvestigationWorkflow;
+
+/// Minimum dedup cache capacity, regardless of channel_capacity setting.
+const MIN_DEDUP_CACHE_CAPACITY: usize = 64;
+
+/// Multiplier applied to `webhook.channel_capacity` to size the dedup cache.
+/// Default channel_capacity=64 yields a 640-entry cache.
+const DEDUP_CACHE_CAPACITY_MULTIPLIER: usize = 10;
 
 /// The central orchestrator that coordinates investigations (ADR-003, ADR-006).
 ///
@@ -35,6 +45,9 @@ pub struct Orchestrator {
     /// Store for persisting workflow state and audit trail
     store: Arc<dyn WorkflowStore>,
     event_log: Arc<dyn EventLog>,
+    /// In-memory dedup cache for at-least-once ingest paths (ADR-013).
+    /// Mutex is fine: critical sections are O(1) and never cross an await.
+    dedup_cache: Arc<Mutex<AlertDedupCache>>,
 }
 
 impl Orchestrator {
@@ -44,11 +57,81 @@ impl Orchestrator {
         store: Arc<dyn WorkflowStore>,
         event_log: Arc<dyn EventLog>,
     ) -> Self {
+        let dedup_capacity = (config.webhook.channel_capacity * DEDUP_CACHE_CAPACITY_MULTIPLIER)
+            .max(MIN_DEDUP_CACHE_CAPACITY);
         Self {
             config,
             router,
             store,
             event_log,
+            dedup_cache: Arc::new(Mutex::new(AlertDedupCache::new(dedup_capacity))),
+        }
+    }
+
+    /// Construct an Orchestrator with an explicit dedup cache. Test-only —
+    /// production callers should use `new()` which sizes the cache from
+    /// `webhook.channel_capacity`.
+    #[doc(hidden)]
+    pub fn new_with_dedup(
+        config: PlatformConfig,
+        router: AgentRouter,
+        store: Arc<dyn WorkflowStore>,
+        event_log: Arc<dyn EventLog>,
+        dedup_cache: Arc<Mutex<AlertDedupCache>>,
+    ) -> Self {
+        Self {
+            config,
+            router,
+            store,
+            event_log,
+            dedup_cache,
+        }
+    }
+
+    /// Append an `IngestDeduped` audit message to the event log so the
+    /// durable trail reflects skipped duplicates (ADR-013). Uses a fresh
+    /// correlation_id because the dedup decision happens before — or
+    /// instead of — a workflow being created. Audit failures are logged
+    /// but never propagated; this is best-effort instrumentation.
+    async fn audit_dedup(&self, alert: &AlertInfo, source: DedupSource) {
+        let msg = AgentMessage::new(
+            Uuid::new_v4(),
+            AgentId("orchestrator".to_string()),
+            MessageTarget::Orchestrator,
+            AgentPayload::IngestDeduped(IngestDedupedNotice {
+                alert_id: alert.alert_id.clone(),
+                affected_resource: alert.affected_resource.clone(),
+                source,
+            }),
+            1.0,
+        );
+        if let Err(e) = self.event_log.append(&msg).await {
+            warn!(error = %e, alert_id = %alert.alert_id, "Failed to append dedup audit event");
+        }
+    }
+
+    /// Build a minimal report representing a duplicate alert that was
+    /// skipped without dispatching agents. Kept as a method so the
+    /// dispatch loop's existing logging contract (`Ok(report)` with
+    /// `duration_ms`, `findings.len()`, `overall_confidence`) is honored.
+    fn duplicate_skip_report(alert: &AlertInfo) -> InvestigationReport {
+        let now = Utc::now();
+        InvestigationReport {
+            investigation_id: format!("dup-{}", alert.alert_id),
+            started_at: now,
+            completed_at: now,
+            duration_ms: 0,
+            trigger: alert.alert_id.clone(),
+            affected_resource: alert.affected_resource.clone(),
+            overall_confidence: 0.0,
+            findings: Vec::new(),
+            summary: format!(
+                "Duplicate alert {} — already seen recently, investigation skipped (ADR-013).",
+                alert.alert_id
+            ),
+            agents_invoked: Vec::new(),
+            escalated: false,
+            escalation_reason: None,
         }
     }
 
@@ -75,6 +158,33 @@ impl Orchestrator {
         &self,
         alert: AlertInfo,
     ) -> Result<InvestigationReport, OrchestratorError> {
+        // At-least-once dedup, layer 1 (ADR-013). NATS JetStream and webhook
+        // retries can both surface the same alert_id; the in-memory cache
+        // keeps intra-replica duplicate dispatch off the hot path without DB
+        // hits. Mutex poison is recovered from rather than propagated — the
+        // cache is a performance optimization, not a correctness primitive.
+        //
+        // The lookup is scoped tightly so the `MutexGuard` is dropped before
+        // any `.await` below — `MutexGuard` is `!Send` and holding it across
+        // an await makes the surrounding future `!Send`, which breaks
+        // `tokio::spawn` on the dispatch side.
+        let is_duplicate = {
+            let mut cache = self
+                .dedup_cache
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            !cache.check_and_insert(&alert.alert_id)
+        };
+        if is_duplicate {
+            warn!(
+                alert_id = %alert.alert_id,
+                resource = %alert.affected_resource,
+                "Duplicate alert skipped — in-memory LRU hit"
+            );
+            self.audit_dedup(&alert, DedupSource::InMemoryLru).await;
+            return Ok(Self::duplicate_skip_report(&alert));
+        }
+
         let mut workflow = InvestigationWorkflow::new(&alert);
         let correlation_id = *workflow.id();
         tracing::Span::current().record("workflow_id", tracing::field::display(&correlation_id));
@@ -89,9 +199,28 @@ impl Orchestrator {
             "Starting investigation"
         );
 
-        // Persist initial workflow state
-        if let Err(e) = self.store.create_workflow(&workflow.record).await {
-            error!(error = %e, "Failed to persist workflow");
+        // At-least-once dedup, layer 2 (ADR-013): the DB UNIQUE constraint
+        // on workflows.alert_id is the authoritative cross-replica gate.
+        // `try_create_workflow` returns false when an existing workflow
+        // already owns this alert_id (another replica claimed it, or the
+        // same alert arrived via both webhook and NATS). Errors are logged
+        // but do not stop the investigation — best-effort dedup, never a
+        // hard stop on the alert path.
+        match self.store.try_create_workflow(&workflow.record).await {
+            Ok(true) => {}
+            Ok(false) => {
+                warn!(
+                    alert_id = %alert.alert_id,
+                    resource = %alert.affected_resource,
+                    "Duplicate alert skipped — DB unique constraint"
+                );
+                self.audit_dedup(&alert, DedupSource::DbUniqueConstraint)
+                    .await;
+                return Ok(Self::duplicate_skip_report(&alert));
+            }
+            Err(e) => {
+                error!(error = %e, "Failed to persist workflow — proceeding without DB dedup gate");
+            }
         }
 
         // ── Step 1: Triage ──

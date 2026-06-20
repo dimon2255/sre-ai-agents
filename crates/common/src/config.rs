@@ -10,6 +10,8 @@ pub struct PlatformConfig {
     pub store: StoreConfig,
     #[serde(default)]
     pub observability: ObservabilityConfig,
+    #[serde(default)]
+    pub nats: NatsConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -108,6 +110,107 @@ pub struct StoreConfig {
     pub database_url: String,
 }
 
+/// NATS JetStream ingestion configuration (ADR-013).
+///
+/// When `enabled` is `false` (the default), the NATS ingestor task is not
+/// spawned and the platform behaves exactly as it did before ADR-013.
+/// The webhook continues to receive alerts unchanged.
+#[derive(Debug, Clone, Deserialize)]
+pub struct NatsConfig {
+    /// When `false`, the NATS ingestor task is not spawned. Default: `false`.
+    #[serde(default)]
+    pub enabled: bool,
+    /// NATS server URL. Example: `nats://nats:4222`.
+    #[serde(default = "default_nats_url")]
+    pub url: String,
+    /// Optional path to a NATS credentials file (NKEY/JWT). When `None`, the
+    /// connection is anonymous — acceptable for local dev only. Staging and
+    /// production MUST set this via `SRE__NATS__CREDENTIALS_PATH`.
+    #[serde(default)]
+    pub credentials_path: Option<String>,
+    /// JetStream stream name. Created if absent.
+    #[serde(default = "default_nats_stream_name")]
+    pub stream_name: String,
+    /// Durable consumer name. Created if absent.
+    #[serde(default = "default_nats_consumer_name")]
+    pub consumer_name: String,
+    /// Subject filter for the consumer. Example: `alerts.azure.>`.
+    #[serde(default = "default_nats_subject_filter")]
+    pub subject_filter: String,
+    /// Maximum number of unacknowledged messages in-flight to this consumer.
+    /// Should match or be close to the `webhook.channel_capacity` so JetStream
+    /// stops delivering before the in-process channel saturates.
+    #[serde(default = "default_nats_max_ack_pending")]
+    pub max_ack_pending: i64,
+    /// How long JetStream waits for an ack before redelivering.
+    #[serde(default = "default_nats_ack_wait_secs")]
+    pub ack_wait_secs: u64,
+    /// Maximum redelivery attempts. After this, the message is terminal
+    /// (future: routed to DLQ — see ADR-013 out-of-scope section).
+    #[serde(default = "default_nats_max_deliver")]
+    pub max_deliver: i64,
+    /// Maximum age of messages in the stream, in hours. Default: 24.
+    #[serde(default = "default_nats_max_age_hours")]
+    pub max_age_hours: u64,
+    /// Number of stream replicas. 1 for staging, 3 for prod.
+    #[serde(default = "default_nats_num_replicas")]
+    pub num_replicas: usize,
+}
+
+fn default_nats_url() -> String {
+    "nats://localhost:4222".to_string()
+}
+
+fn default_nats_stream_name() -> String {
+    "sre-alerts".to_string()
+}
+
+fn default_nats_consumer_name() -> String {
+    "sre-orchestrator".to_string()
+}
+
+fn default_nats_subject_filter() -> String {
+    "alerts.azure.>".to_string()
+}
+
+fn default_nats_max_ack_pending() -> i64 {
+    64
+}
+
+fn default_nats_ack_wait_secs() -> u64 {
+    60
+}
+
+fn default_nats_max_deliver() -> i64 {
+    5
+}
+
+fn default_nats_max_age_hours() -> u64 {
+    24
+}
+
+fn default_nats_num_replicas() -> usize {
+    1
+}
+
+impl Default for NatsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            url: default_nats_url(),
+            credentials_path: None,
+            stream_name: default_nats_stream_name(),
+            consumer_name: default_nats_consumer_name(),
+            subject_filter: default_nats_subject_filter(),
+            max_ack_pending: default_nats_max_ack_pending(),
+            ack_wait_secs: default_nats_ack_wait_secs(),
+            max_deliver: default_nats_max_deliver(),
+            max_age_hours: default_nats_max_age_hours(),
+            num_replicas: default_nats_num_replicas(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ObservabilityConfig {
     #[serde(default)]
@@ -121,7 +224,18 @@ pub struct ObservabilityConfig {
 }
 
 fn default_otlp_endpoint() -> String {
-    "http://localhost:4318".to_string()
+    // Empty by default: let the OTel SDK read `OTEL_EXPORTER_OTLP_ENDPOINT`
+    // from the environment.
+    //
+    // - In ACA staging/prod (acaenv-sre-agents-staging), the env-managed OTel
+    //   agent auto-injects the env var pointing at its cluster-local
+    //   service (e.g., `http://k8se-otel.k8se-apps.svc.cluster.local:4317`).
+    //   Hardcoding `http://localhost:4317` here would override that and
+    //   silently break export (nothing listens on localhost in an ACA pod).
+    // - For local dev with no env var set, the OTel SDK falls back to its
+    //   own default (`http://localhost:4317`), so a developer running a
+    //   local collector on the standard port still gets traces.
+    String::new()
 }
 
 fn default_service_name() -> String {
@@ -136,7 +250,14 @@ impl ObservabilityConfig {
     /// Validate that the OTLP endpoint is a safe, internal destination.
     /// Prevents accidental exfiltration of span data (resource names, alert
     /// details, severity levels) to external endpoints.
+    ///
+    /// An empty endpoint is allowed — it signals "let the OTel SDK read
+    /// `OTEL_EXPORTER_OTLP_ENDPOINT` from the environment" (auto-injected
+    /// by the ACA env-managed agent in staging/prod).
     pub fn validate_endpoint(&self) -> anyhow::Result<()> {
+        if self.otlp_endpoint.is_empty() {
+            return Ok(());
+        }
         let url = url::Url::parse(&self.otlp_endpoint).map_err(|e| {
             anyhow::anyhow!("Invalid OTLP endpoint URL '{}': {e}", self.otlp_endpoint)
         })?;
@@ -231,6 +352,7 @@ impl Default for PlatformConfig {
                 database_url: "postgres://postgres:password@localhost:5432/sre_agents".to_string(),
             },
             observability: ObservabilityConfig::default(),
+            nats: NatsConfig::default(),
         }
     }
 }
