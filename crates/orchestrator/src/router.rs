@@ -102,3 +102,105 @@ pub enum RouteError {
     #[error("Agent channel closed: {0}")]
     ChannelClosed(String),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sre_common::messages::{AgentId, AgentPayload, MessageTarget};
+
+    fn handle(id: &str, agent_type: AgentType) -> (AgentHandle, mpsc::Receiver<InboundMessage>) {
+        let (tx, rx) = mpsc::channel(8);
+        (
+            AgentHandle {
+                id: AgentId(id.to_string()),
+                agent_type,
+                sender: tx,
+                capabilities: vec!["cap".to_string()],
+            },
+            rx,
+        )
+    }
+
+    fn msg() -> AgentMessage {
+        AgentMessage::new(
+            uuid::Uuid::new_v4(),
+            AgentId("orchestrator".to_string()),
+            MessageTarget::Orchestrator,
+            AgentPayload::HealthCheck,
+            1.0,
+        )
+    }
+
+    #[test]
+    fn default_and_new_are_empty() {
+        let r = AgentRouter::default();
+        assert!(r.registered_types().is_empty());
+        assert!(!r.has_agent_type(&AgentType::Logs));
+    }
+
+    #[tokio::test]
+    async fn register_and_route_to_type() {
+        let mut router = AgentRouter::new();
+        let (h, mut rx) = handle("logs-agent", AgentType::Logs);
+        router.register(h);
+
+        assert!(router.has_agent_type(&AgentType::Logs));
+        assert_eq!(router.registered_types(), vec![AgentType::Logs]);
+
+        let (reply_tx, _reply_rx) = mpsc::channel(8);
+        router
+            .route_to_type(&AgentType::Logs, msg(), reply_tx)
+            .await
+            .unwrap();
+        // message landed in the agent inbox
+        assert!(rx.recv().await.is_some());
+    }
+
+    #[tokio::test]
+    async fn route_to_type_with_no_agent_errors() {
+        let router = AgentRouter::new();
+        let (reply_tx, _r) = mpsc::channel(8);
+        let err = router
+            .route_to_type(&AgentType::Metrics, msg(), reply_tx)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, RouteError::NoAgent(_)));
+        assert!(err.to_string().contains("metrics"));
+    }
+
+    #[tokio::test]
+    async fn route_to_id_success_and_missing() {
+        let mut router = AgentRouter::new();
+        let (h, mut rx) = handle("triage-agent", AgentType::Triage);
+        router.register(h);
+
+        let (reply_tx, _r) = mpsc::channel(8);
+        router
+            .route_to_id("triage-agent", msg(), reply_tx)
+            .await
+            .unwrap();
+        assert!(rx.recv().await.is_some());
+
+        let (reply_tx2, _r2) = mpsc::channel(8);
+        let err = router
+            .route_to_id("ghost", msg(), reply_tx2)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, RouteError::NoAgent(_)));
+    }
+
+    #[tokio::test]
+    async fn route_to_closed_inbox_errors() {
+        let mut router = AgentRouter::new();
+        let (h, rx) = handle("logs-agent", AgentType::Logs);
+        router.register(h);
+        drop(rx); // close the agent inbox
+
+        let (reply_tx, _r) = mpsc::channel(8);
+        let err = router
+            .route_to_type(&AgentType::Logs, msg(), reply_tx)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, RouteError::ChannelClosed(_)));
+    }
+}

@@ -413,3 +413,87 @@ impl SreAgent for InfraAgent {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::InfraAgent;
+    use serde_json::json;
+    use sre_azure::auth::MockTokenProvider;
+    use sre_azure::query_client::AzureQueryClient;
+    use sre_common::findings::{FindingCategory, FindingSeverity};
+    use std::sync::Arc;
+
+    fn agent() -> InfraAgent {
+        let cred = Arc::new(MockTokenProvider::new("test-token"));
+        InfraAgent::new(
+            Arc::new(AzureQueryClient::new(cred)),
+            vec!["workspace-1".to_string()],
+            50,
+        )
+    }
+
+    fn rec(v: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
+        v.as_object().expect("record must be a JSON object").clone()
+    }
+
+    // ─── analyze_deployments ───
+
+    #[test]
+    fn deployments_none_when_no_changes() {
+        let a = agent();
+        let records: Vec<serde_json::Map<String, serde_json::Value>> = vec![];
+        assert!(a.analyze_deployments(&records, "svc").is_none());
+    }
+
+    #[test]
+    fn deployments_some_with_recent_change() {
+        let a = agent();
+        let records = vec![rec(json!({
+            "OperationNameValue":"Microsoft.Web/sites/restart/action",
+            "ActivityStatusValue":"Succeeded",
+            "Caller":"alice@example.com",
+            "TimeGenerated":"2026-06-20T10:00:00Z",
+        }))];
+        let f = a.analyze_deployments(&records, "svc").unwrap();
+        assert_eq!(f.severity, FindingSeverity::Medium);
+        assert_eq!(f.category, FindingCategory::DeploymentCorrelation);
+        assert!(f.observed_at.is_some());
+        assert!(f.description.contains("restart"));
+        assert!(f.description.contains("alice@example.com"));
+    }
+
+    // ─── analyze_health ───
+
+    #[test]
+    fn health_none_when_all_available() {
+        let a = agent();
+        let records = vec![rec(json!({
+            "CurrentHealth":"Available","PreviousHealth":"Available",
+        }))];
+        assert!(a.analyze_health(&records, "svc").is_none());
+    }
+
+    #[test]
+    fn health_high_when_degraded() {
+        let a = agent();
+        let records = vec![rec(json!({
+            "CurrentHealth":"Degraded","PreviousHealth":"Available",
+            "Cause":"PlatformInitiated","TimeGenerated":"2026-06-20T10:00:00Z",
+        }))];
+        let f = a.analyze_health(&records, "svc").unwrap();
+        assert_eq!(f.severity, FindingSeverity::High);
+        assert_eq!(f.category, FindingCategory::ServiceHealth);
+        assert!(f.observed_at.is_some());
+    }
+
+    #[test]
+    fn health_critical_when_any_unavailable() {
+        let a = agent();
+        let records = vec![rec(json!({
+            "CurrentHealth":"Unavailable","PreviousHealth":"Degraded",
+            "Cause":"Outage","TimeGenerated":"2026-06-20T10:00:00Z",
+        }))];
+        let f = a.analyze_health(&records, "svc").unwrap();
+        assert_eq!(f.severity, FindingSeverity::Critical);
+    }
+}

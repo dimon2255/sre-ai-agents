@@ -100,3 +100,69 @@ pub fn build_engine(cfg: &ReasoningConfig) -> Option<Arc<dyn ReasoningEngine>> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sre_common::config::ReasoningConfig;
+
+    fn cfg(enabled: bool, provider: &str, api_key_env: &str) -> ReasoningConfig {
+        ReasoningConfig {
+            enabled,
+            provider: provider.to_string(),
+            model: "claude-opus-4-8".to_string(),
+            max_tokens: 1024,
+            api_key_env: api_key_env.to_string(),
+            base_url: None,
+        }
+    }
+
+    #[test]
+    fn disabled_returns_none() {
+        assert!(build_engine(&cfg(false, "mock", "UNUSED")).is_none());
+    }
+
+    #[test]
+    fn mock_provider_builds_mock() {
+        let engine = build_engine(&cfg(true, "mock", "UNUSED")).unwrap();
+        assert_eq!(engine.name(), "mock");
+    }
+
+    #[test]
+    fn unknown_provider_falls_back_to_mock() {
+        let engine = build_engine(&cfg(true, "totally-unknown", "UNUSED")).unwrap();
+        assert_eq!(engine.name(), "mock");
+    }
+
+    #[test]
+    fn claude_without_api_key_falls_back_to_mock() {
+        // An env var name that is guaranteed not to be set.
+        let engine =
+            build_engine(&cfg(true, "claude", "REASONING_KEY_DEFINITELY_UNSET_8f3a")).unwrap();
+        assert_eq!(engine.name(), "mock");
+    }
+
+    #[test]
+    fn claude_with_api_key_builds_claude() {
+        // Unique var name so this test owns it (no collision with other tests).
+        let var = "REASONING_KEY_FOR_BUILD_ENGINE_TEST_42";
+        std::env::set_var(var, "sk-ant-test");
+        let engine = build_engine(&cfg(true, "claude", var)).unwrap();
+        assert_eq!(engine.name(), "claude");
+        std::env::remove_var(var);
+    }
+
+    #[test]
+    fn reasoning_error_display_includes_context() {
+        assert!(ReasoningError::Http("boom".into()).to_string().contains("boom"));
+        assert!(ReasoningError::Provider {
+            status: 429,
+            message: "slow down".into(),
+        }
+        .to_string()
+        .contains("429"));
+        assert!(ReasoningError::Parse("bad json".into())
+            .to_string()
+            .contains("bad json"));
+    }
+}

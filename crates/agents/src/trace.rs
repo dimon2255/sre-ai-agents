@@ -411,3 +411,86 @@ impl SreAgent for TraceAgent {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::TraceAgent;
+    use serde_json::json;
+    use sre_azure::auth::MockTokenProvider;
+    use sre_azure::query_client::AzureQueryClient;
+    use sre_common::findings::{FindingCategory, FindingSeverity};
+    use std::sync::Arc;
+
+    fn agent() -> TraceAgent {
+        let cred = Arc::new(MockTokenProvider::new("test-token"));
+        TraceAgent::new(
+            Arc::new(AzureQueryClient::new(cred)),
+            vec!["app-insights-1".to_string()],
+            50,
+        )
+    }
+
+    fn rec(v: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
+        v.as_object().expect("record must be a JSON object").clone()
+    }
+
+    // ─── analyze_failure_correlation ───
+
+    #[test]
+    fn failure_correlation_none_without_dependency_target() {
+        let a = agent();
+        // empty DependencyTarget => not a downstream-correlated failure
+        let records = vec![rec(json!({
+            "RequestName":"GET /x","DependencyTarget":"","FailedTraces":10,
+        }))];
+        assert!(a.analyze_failure_correlation(&records, "svc").is_none());
+    }
+
+    #[test]
+    fn failure_correlation_high_when_many_traces() {
+        let a = agent();
+        let records = vec![rec(json!({
+            "RequestName":"GET /pay","DependencyTarget":"sql-db",
+            "DependencyType":"SQL","DependencyResultCode":"500","FailedTraces":60,
+        }))];
+        let f = a.analyze_failure_correlation(&records, "svc").unwrap();
+        assert_eq!(f.severity, FindingSeverity::High); // > 50 failed traces
+        assert_eq!(f.category, FindingCategory::DependencyFailure);
+        assert!(f.description.contains("sql-db"));
+        assert!(f.description.contains("GET /pay"));
+    }
+
+    #[test]
+    fn failure_correlation_medium_when_few_traces() {
+        let a = agent();
+        let records = vec![rec(json!({
+            "RequestName":"GET /pay","DependencyTarget":"sql-db",
+            "DependencyType":"SQL","DependencyResultCode":"500","FailedTraces":10,
+        }))];
+        let f = a.analyze_failure_correlation(&records, "svc").unwrap();
+        assert_eq!(f.severity, FindingSeverity::Medium); // <= 50
+    }
+
+    // ─── analyze_latency_breakdown ───
+
+    #[test]
+    fn latency_breakdown_none_when_share_below_half() {
+        let a = agent();
+        let records = vec![rec(json!({
+            "OperationName":"op","AvgRequestMs":100.0,"AvgDependencyShare":20.0,
+        }))];
+        assert!(a.analyze_latency_breakdown(&records, "svc").is_none());
+    }
+
+    #[test]
+    fn latency_breakdown_some_when_dependency_dominates() {
+        let a = agent();
+        let records = vec![rec(json!({
+            "OperationName":"GET /report","AvgRequestMs":800.0,"AvgDependencyShare":70.0,
+        }))];
+        let f = a.analyze_latency_breakdown(&records, "svc").unwrap();
+        assert_eq!(f.severity, FindingSeverity::Medium);
+        assert_eq!(f.category, FindingCategory::LatencyDegradation);
+        assert!(f.description.contains("GET /report"));
+    }
+}

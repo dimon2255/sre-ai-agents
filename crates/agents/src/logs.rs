@@ -372,3 +372,104 @@ impl SreAgent for LogsAgent {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::LogsAgent;
+    use serde_json::json;
+    use sre_azure::auth::MockTokenProvider;
+    use sre_azure::query_client::AzureQueryClient;
+    use sre_common::findings::{FindingCategory, FindingSeverity};
+    use std::sync::Arc;
+
+    fn agent() -> LogsAgent {
+        let cred = Arc::new(MockTokenProvider::new("test-token"));
+        LogsAgent::new(
+            Arc::new(AzureQueryClient::new(cred)),
+            vec!["workspace-1".to_string()],
+            100,
+        )
+    }
+
+    fn rec(v: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
+        v.as_object().expect("record must be a JSON object").clone()
+    }
+
+    // ─── analyze_error_spike_results ───
+
+    #[test]
+    fn error_spike_critical_above_100() {
+        let a = agent();
+        let records = vec![
+            rec(json!({"ErrorCount": 80, "ExceptionType": "NullRef", "TimeGenerated":"2026-06-20T10:00:00Z"})),
+            rec(json!({"ErrorCount": 40, "ExceptionType": "Timeout"})),
+        ];
+        let f = a.analyze_error_spike_results(&records, "svc");
+        assert_eq!(f.severity, FindingSeverity::Critical); // 120 > 100
+        assert!((f.confidence - 0.9).abs() < f64::EPSILON); // > 50 errors
+        assert_eq!(f.category, FindingCategory::ErrorSpike);
+        assert!(f.observed_at.is_some());
+        let distinct = f.evidence[0]
+            .data
+            .get("distinct_types")
+            .and_then(|v| v.as_array())
+            .unwrap();
+        assert_eq!(distinct.len(), 2);
+    }
+
+    #[test]
+    fn error_spike_high_tier() {
+        let a = agent();
+        let records = vec![rec(json!({"ErrorCount": 60, "ExceptionType": "Timeout"}))];
+        let f = a.analyze_error_spike_results(&records, "svc");
+        assert_eq!(f.severity, FindingSeverity::High); // 50 < 60 <= 100
+        assert!((f.confidence - 0.9).abs() < f64::EPSILON);
+        assert!(f.observed_at.is_none()); // no TimeGenerated
+    }
+
+    #[test]
+    fn error_spike_medium_tier() {
+        let a = agent();
+        let records = vec![rec(json!({"ErrorCount": 20, "ExceptionType": "Timeout"}))];
+        let f = a.analyze_error_spike_results(&records, "svc");
+        assert_eq!(f.severity, FindingSeverity::Medium); // 10 < 20 <= 50
+        assert!((f.confidence - 0.7).abs() < f64::EPSILON); // <= 50 errors
+    }
+
+    #[test]
+    fn error_spike_low_tier() {
+        let a = agent();
+        let records = vec![rec(json!({"ErrorCount": 5, "ExceptionType": "Timeout"}))];
+        let f = a.analyze_error_spike_results(&records, "svc");
+        assert_eq!(f.severity, FindingSeverity::Low); // <= 10
+        assert!((f.confidence - 0.7).abs() < f64::EPSILON);
+    }
+
+    // ─── analyze_error_detail_results ───
+
+    #[test]
+    fn error_details_truncates_and_prefers_innermost() {
+        let a = agent();
+        let long = "x".repeat(500);
+        let records = vec![
+            rec(json!({"InnermostMessage": long})),
+            rec(json!({"OuterMessage": "outer only"})), // falls back to OuterMessage
+            rec(json!({"InnermostMessage": "inner", "OuterMessage": "outer"})),
+        ];
+        let f = a.analyze_error_detail_results(&records, "svc");
+        assert_eq!(f.severity, FindingSeverity::Info);
+        assert!((f.confidence - 0.95).abs() < f64::EPSILON);
+        let msgs = f.evidence[0]
+            .data
+            .get("messages")
+            .and_then(|v| v.as_array())
+            .unwrap();
+        assert_eq!(msgs.len(), 3);
+        // first message truncated to 200 chars
+        assert_eq!(msgs[0].as_str().unwrap().chars().count(), 200);
+        // second falls back to OuterMessage
+        assert_eq!(msgs[1].as_str().unwrap(), "outer only");
+        // third prefers InnermostMessage over OuterMessage
+        assert_eq!(msgs[2].as_str().unwrap(), "inner");
+    }
+}

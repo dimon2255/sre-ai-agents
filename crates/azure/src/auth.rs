@@ -71,3 +71,36 @@ impl TokenProvider for MockTokenProvider {
         Ok(self.token.clone())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn mock_provider_returns_its_token() {
+        let provider = MockTokenProvider::new("tok-123");
+        assert_eq!(provider.token, "tok-123");
+        assert_eq!(provider.get_token("any-scope").await.unwrap(), "tok-123");
+    }
+
+    #[tokio::test]
+    async fn azure_credential_provider_constructs() {
+        assert!(AzureCredentialProvider::new().is_ok());
+    }
+
+    #[tokio::test]
+    async fn azure_credential_provider_token_matches_env() {
+        // Read (never mutate) the ambient env to stay race-free with the
+        // reqwest-client-building tests that share this test binary. We assert
+        // whichever branch of get_token corresponds to the current environment.
+        let provider = AzureCredentialProvider::new().unwrap();
+        let result = provider.get_token("https://management.azure.com/.default").await;
+        match std::env::var("AZURE_ACCESS_TOKEN") {
+            Ok(token) if !token.is_empty() => assert_eq!(result.unwrap(), token),
+            _ => {
+                let err = result.unwrap_err();
+                assert!(matches!(err, AzureError::AuthFailed(_)));
+            }
+        }
+    }
+}

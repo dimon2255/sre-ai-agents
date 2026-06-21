@@ -232,6 +232,39 @@
 
 ---
 
+## Test Coverage
+
+**Status**: 80% target met (2026-06-20) — **85.24% workspace line coverage** (measured by `cargo llvm-cov`, all files included).
+
+### Measuring
+
+```bash
+cargo install cargo-llvm-cov --locked          # one-time
+cargo llvm-cov --workspace --summary-only       # full table
+# Docker unavailable? The Postgres/NATS testcontainers tests fail at runtime;
+# add --ignore-run-fail so the report is still emitted from the tests that ran.
+cargo llvm-cov --workspace --ignore-run-fail --summary-only
+```
+
+### Coverage by area (line %)
+
+| Area | Before | After | How |
+|------|--------|-------|-----|
+| `agents/{metrics,logs,trace,infra}` | 13–23% | 98–99% | In-file `#[cfg(test)]` over the pure `analyze_*` functions (JSON records → `Finding`) |
+| `orchestrator/engine` | 18% | 64% | `tests/engine_inmemory_tests.rs` drives full `investigate()` against an in-memory `WorkflowStore`/`EventLog` — **no Docker** |
+| `orchestrator/{workflow,router,aggregator}` | 43–74% | 94–99% | State-machine + routing + dedup unit tests |
+| `intelligence/reasoning` | 0% | 100% | `build_engine` provider selection (mock/claude/unknown/disabled) |
+| `azure/{auth,alerts_client}` | 36–57% | 88–94% | Token providers + Common Alert Schema parsing |
+| `notify/engine` | 73% | 97% | `from_config` provider wiring via the `MockNotifier` |
+| `ingest/nats` | 0% | 78% | State enum, `build_options`, cancel-path backoff (server-independent logic) |
+
+### Not unit-testable in this environment
+
+- `src/main.rs` (0%) — CLI bootstrap / clap wiring (binary entrypoint).
+- `store/postgres.rs`, the bulk of `ingest/nats.rs` `run()/handle_message()`, `webhook.rs` handler, `crates/*/tests/{postgres_tests,investigation_tests,nats_ingest,webhook_tests}.rs` — require a live Postgres/NATS via `testcontainers` (Docker). These pass in CI where Docker is present; they are skipped locally without it.
+
+---
+
 ## Architecture Decision Records
 
 | ADR | Title | Status |

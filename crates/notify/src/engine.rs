@@ -137,6 +137,7 @@ mod tests {
     use super::*;
     use crate::MockNotifier;
     use chrono::Utc;
+    use sre_common::config::{NotificationConfig, PagerDutyConfig, SlackConfig, TeamsConfig};
     use sre_common::findings::{Finding, FindingCategory};
 
     fn finding(severity: FindingSeverity) -> Finding {
@@ -217,5 +218,48 @@ mod tests {
             .await;
         assert_eq!(delivered, 0);
         assert_eq!(mock.count(), 0);
+    }
+
+    #[test]
+    fn from_config_disabled_returns_none() {
+        let mut cfg = NotificationConfig::default();
+        cfg.enabled = false;
+        assert!(NotificationEngine::from_config(&cfg).is_none());
+    }
+
+    #[test]
+    fn from_config_builds_all_real_providers() {
+        let mut cfg = NotificationConfig::default();
+        cfg.enabled = true;
+        cfg.min_severity = "high".to_string();
+        cfg.notify_on_escalation = true;
+        cfg.slack = Some(SlackConfig {
+            webhook_url: "https://hooks.slack.example/x".to_string(),
+        });
+        cfg.teams = Some(TeamsConfig {
+            webhook_url: "https://teams.example/x".to_string(),
+        });
+        cfg.pagerduty = Some(PagerDutyConfig {
+            routing_key: "routing-key-123".to_string(),
+        });
+
+        let engine = NotificationEngine::from_config(&cfg).expect("enabled => Some");
+        // min_severity parsed as High: High notifies, Medium does not.
+        assert!(engine.should_notify(&report(vec![finding(FindingSeverity::High)], false)));
+        assert!(!engine.should_notify(&report(vec![finding(FindingSeverity::Medium)], false)));
+    }
+
+    #[test]
+    fn from_config_without_providers_installs_mock() {
+        let mut cfg = NotificationConfig::default();
+        cfg.enabled = true;
+        cfg.min_severity = "info".to_string();
+        cfg.slack = None;
+        cfg.teams = None;
+        cfg.pagerduty = None;
+
+        // No real provider configured => falls back to the logging mock, still Some.
+        let engine = NotificationEngine::from_config(&cfg).expect("enabled => Some");
+        assert!(engine.should_notify(&report(vec![finding(FindingSeverity::Info)], false)));
     }
 }

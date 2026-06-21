@@ -490,3 +490,171 @@ impl SreAgent for MetricsAgent {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::MetricsAgent;
+    use serde_json::json;
+    use sre_azure::auth::MockTokenProvider;
+    use sre_azure::query_client::AzureQueryClient;
+    use sre_common::findings::{FindingCategory, FindingSeverity};
+    use std::sync::Arc;
+
+    fn agent() -> MetricsAgent {
+        let cred = Arc::new(MockTokenProvider::new("test-token"));
+        MetricsAgent::new(
+            Arc::new(AzureQueryClient::new(cred)),
+            vec!["app-insights-1".to_string()],
+        )
+    }
+
+    fn rec(v: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
+        v.as_object().expect("record must be a JSON object").clone()
+    }
+
+    // ─── analyze_latency_results ───
+
+    #[test]
+    fn latency_critical_when_p95_exceeds_5s() {
+        let a = agent();
+        let records = vec![rec(json!({
+            "P95": 6000.0, "P99": 9000.0, "FailureRate": 1.0, "TotalRequests": 500,
+            "TimeGenerated": "2026-06-20T10:00:00Z",
+        }))];
+        let f = a.analyze_latency_results(&records, "payments-api");
+        assert_eq!(f.severity, FindingSeverity::Critical);
+        // failure_rate 1.0 (<5) => latency category, not error spike
+        assert_eq!(f.category, FindingCategory::LatencyDegradation);
+        // >100 requests => high confidence
+        assert!((f.confidence - 0.9).abs() < f64::EPSILON);
+        assert!(f.observed_at.is_some());
+        assert_eq!(f.source_agent, "metrics-agent");
+        // p95 > 2000 => 3 performance suggestions
+        assert_eq!(f.suggestions.len(), 3);
+        assert!(f.description.contains("6000ms"));
+        assert_eq!(f.evidence.len(), 1);
+    }
+
+    #[test]
+    fn latency_critical_and_errorspike_on_high_failure_rate() {
+        let a = agent();
+        let records = vec![rec(json!({
+            "P95": 100.0, "P99": 200.0, "FailureRate": 12.0, "TotalRequests": 50,
+        }))];
+        let f = a.analyze_latency_results(&records, "svc");
+        // failure_rate 12 > 10 => Critical
+        assert_eq!(f.severity, FindingSeverity::Critical);
+        // failure_rate > 5 => ErrorSpike category
+        assert_eq!(f.category, FindingCategory::ErrorSpike);
+        // <100 requests => lower confidence
+        assert!((f.confidence - 0.6).abs() < f64::EPSILON);
+        // failure_rate > 5 => 2 failure-oriented suggestions
+        assert_eq!(f.suggestions.len(), 2);
+        // no TimeGenerated => observed_at None
+        assert!(f.observed_at.is_none());
+    }
+
+    #[test]
+    fn latency_high_tier() {
+        let a = agent();
+        let records = vec![rec(json!({
+            "P95": 2500.0, "P99": 3000.0, "FailureRate": 0.0, "TotalRequests": 200,
+        }))];
+        let f = a.analyze_latency_results(&records, "svc");
+        assert_eq!(f.severity, FindingSeverity::High);
+        assert_eq!(f.suggestions.len(), 3); // p95 > 2000
+    }
+
+    #[test]
+    fn latency_medium_tier() {
+        let a = agent();
+        let records = vec![rec(json!({
+            "P95": 1500.0, "P99": 1800.0, "FailureRate": 0.0, "TotalRequests": 10,
+        }))];
+        let f = a.analyze_latency_results(&records, "svc");
+        assert_eq!(f.severity, FindingSeverity::Medium);
+        // p95 not > 2000 and failure not > 5 => no suggestions
+        assert!(f.suggestions.is_empty());
+    }
+
+    #[test]
+    fn latency_low_tier_defaults_when_fields_missing() {
+        let a = agent();
+        // empty record => all fields default to 0 => Low severity
+        let records = vec![rec(json!({}))];
+        let f = a.analyze_latency_results(&records, "svc");
+        assert_eq!(f.severity, FindingSeverity::Low);
+        assert_eq!(f.category, FindingCategory::LatencyDegradation);
+        assert!((f.confidence - 0.6).abs() < f64::EPSILON);
+        assert!(f.suggestions.is_empty());
+        assert!(f.observed_at.is_none());
+    }
+
+    // ─── analyze_failure_results ───
+
+    #[test]
+    fn failure_results_high_when_many_failures() {
+        let a = agent();
+        let records = vec![
+            rec(json!({"OperationName":"GET /pay","ResultCode":"500","FailureCount":40})),
+            rec(json!({"OperationName":"POST /charge","ResultCode":"503","FailureCount":20})),
+        ];
+        let f = a.analyze_failure_results(&records, "svc");
+        assert_eq!(f.severity, FindingSeverity::High); // 60 > 50
+        assert_eq!(f.category, FindingCategory::ErrorSpike);
+        assert!(f.description.contains("60 total failures"));
+        assert!(f.description.contains("GET /pay"));
+    }
+
+    #[test]
+    fn failure_results_medium_and_caps_top5() {
+        let a = agent();
+        let records: Vec<_> = (0..8)
+            .map(|i| {
+                rec(json!({
+                    "OperationName": format!("op{i}"),
+                    "ResultCode": "500",
+                    "FailureCount": 1,
+                }))
+            })
+            .collect();
+        let f = a.analyze_failure_results(&records, "svc");
+        assert_eq!(f.severity, FindingSeverity::Medium); // 8 <= 50
+        assert!(f.description.contains("across 8 operations"));
+        // evidence breakdown lists only the top 5
+        let top = f.evidence[0]
+            .data
+            .get("top_operations")
+            .and_then(|v| v.as_array())
+            .unwrap();
+        assert_eq!(top.len(), 5);
+    }
+
+    // ─── analyze_dependency_results ───
+
+    #[test]
+    fn dependency_results_none_when_no_failing_deps() {
+        let a = agent();
+        let records = vec![rec(json!({
+            "Target":"sql-db","DependencyType":"SQL","FailureRate": 2.0,
+        }))];
+        assert!(a.analyze_dependency_results(&records, "svc").is_none());
+    }
+
+    #[test]
+    fn dependency_results_some_when_failing_dep_present() {
+        let a = agent();
+        let records = vec![
+            rec(json!({"Target":"sql-db","DependencyType":"SQL","FailureRate": 25.0})),
+            rec(json!({"Target":"cache","DependencyType":"Redis","FailureRate": 1.0})),
+        ];
+        let f = a
+            .analyze_dependency_results(&records, "svc")
+            .expect("should produce a finding");
+        assert_eq!(f.severity, FindingSeverity::High);
+        assert_eq!(f.category, FindingCategory::DependencyFailure);
+        assert!(f.description.contains("sql-db"));
+        // the healthy dependency is below threshold and excluded
+        assert!(!f.description.contains("cache"));
+    }
+}
