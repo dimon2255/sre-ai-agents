@@ -191,7 +191,8 @@ fn agent_router(
 }
 
 fn query_client() -> Arc<AzureQueryClient> {
-    let credential: Arc<dyn sre_azure::TokenProvider> = Arc::new(MockTokenProvider::new("test-token"));
+    let credential: Arc<dyn sre_azure::TokenProvider> =
+        Arc::new(MockTokenProvider::new("test-token"));
     Arc::new(AzureQueryClient::new(credential))
 }
 

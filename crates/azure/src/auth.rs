@@ -94,7 +94,9 @@ mod tests {
         // reqwest-client-building tests that share this test binary. We assert
         // whichever branch of get_token corresponds to the current environment.
         let provider = AzureCredentialProvider::new().unwrap();
-        let result = provider.get_token("https://management.azure.com/.default").await;
+        let result = provider
+            .get_token("https://management.azure.com/.default")
+            .await;
         match std::env::var("AZURE_ACCESS_TOKEN") {
             Ok(token) if !token.is_empty() => assert_eq!(result.unwrap(), token),
             _ => {

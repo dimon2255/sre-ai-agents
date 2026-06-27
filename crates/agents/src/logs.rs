@@ -401,7 +401,9 @@ mod tests {
     fn error_spike_critical_above_100() {
         let a = agent();
         let records = vec![
-            rec(json!({"ErrorCount": 80, "ExceptionType": "NullRef", "TimeGenerated":"2026-06-20T10:00:00Z"})),
+            rec(
+                json!({"ErrorCount": 80, "ExceptionType": "NullRef", "TimeGenerated":"2026-06-20T10:00:00Z"}),
+            ),
             rec(json!({"ErrorCount": 40, "ExceptionType": "Timeout"})),
         ];
         let f = a.analyze_error_spike_results(&records, "svc");

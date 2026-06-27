@@ -154,7 +154,9 @@ mod tests {
 
     #[test]
     fn reasoning_error_display_includes_context() {
-        assert!(ReasoningError::Http("boom".into()).to_string().contains("boom"));
+        assert!(ReasoningError::Http("boom".into())
+            .to_string()
+            .contains("boom"));
         assert!(ReasoningError::Provider {
             status: 429,
             message: "slow down".into(),
