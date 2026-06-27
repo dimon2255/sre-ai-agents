@@ -115,4 +115,40 @@ mod tests {
         let findings = vec![make_finding(FindingSeverity::High, 0.9)];
         assert!(!FindingAggregator::should_escalate(&findings));
     }
+
+    #[test]
+    fn deduplicate_drops_cross_agent_duplicates_and_sorts_by_severity() {
+        let mut a = make_finding(FindingSeverity::Low, 0.5);
+        a.title = "Error spike".to_string();
+        a.source_agent = "logs-agent".to_string();
+
+        // Same category + title but a *different* agent => duplicate of `a`.
+        let mut b = make_finding(FindingSeverity::Critical, 0.9);
+        b.title = "Error spike".to_string();
+        b.source_agent = "metrics-agent".to_string();
+
+        // Distinct title => kept.
+        let mut c = make_finding(FindingSeverity::High, 0.8);
+        c.title = "Latency degradation".to_string();
+        c.source_agent = "metrics-agent".to_string();
+
+        let deduped = FindingAggregator::deduplicate(vec![a, b, c]);
+        assert_eq!(deduped.len(), 2);
+        // Sorted most-severe first: High "Latency degradation" precedes Low "Error spike".
+        assert_eq!(deduped[0].title, "Latency degradation");
+        assert_eq!(deduped[1].title, "Error spike");
+    }
+
+    #[test]
+    fn deduplicate_keeps_same_agent_repeats() {
+        // The dedup rule only collapses findings from *different* agents, so two
+        // identical findings from the same agent are both retained.
+        let mut a = make_finding(FindingSeverity::Medium, 0.7);
+        a.title = "Same".to_string();
+        a.source_agent = "logs-agent".to_string();
+        let b = a.clone();
+
+        let deduped = FindingAggregator::deduplicate(vec![a, b]);
+        assert_eq!(deduped.len(), 2);
+    }
 }

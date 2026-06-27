@@ -189,3 +189,169 @@ impl InvestigationWorkflow {
         summary
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{InvestigationWorkflow, WorkflowState};
+    use chrono::Utc;
+    use sre_common::errors::OrchestratorError;
+    use sre_common::findings::{Finding, FindingCategory, FindingSeverity};
+    use sre_common::messages::{
+        AgentType, AlertInfo, AlertSeverity, AnalysisResult, InvestigationParams, TriageResult,
+    };
+
+    fn alert() -> AlertInfo {
+        AlertInfo {
+            alert_id: "a-1".to_string(),
+            alert_rule: "rule".to_string(),
+            severity: AlertSeverity::Sev1,
+            signal_type: "Metric".to_string(),
+            monitor_condition: "Fired".to_string(),
+            affected_resource: "payments-api".to_string(),
+            fired_at: Utc::now(),
+            description: None,
+            raw_context: None,
+        }
+    }
+
+    fn finding(severity: FindingSeverity, confidence: f64, title: &str) -> Finding {
+        Finding {
+            category: FindingCategory::ErrorSpike,
+            severity,
+            title: title.to_string(),
+            description: "d".to_string(),
+            confidence,
+            observed_at: None,
+            source_agent: "logs-agent".to_string(),
+            evidence: vec![],
+            suggestions: vec![],
+        }
+    }
+
+    fn triage(agents: Vec<AgentType>) -> TriageResult {
+        TriageResult {
+            severity: AlertSeverity::Sev1,
+            affected_service: "payments-api".to_string(),
+            signal_summary: "metric".to_string(),
+            recommended_agents: agents,
+            investigation_params: InvestigationParams {
+                resource_name: "payments-api".to_string(),
+                resource_group: Some("rg".to_string()),
+                timespan_minutes: 30,
+                operation_ids: vec![],
+            },
+        }
+    }
+
+    fn analysis(findings: Vec<Finding>) -> AnalysisResult {
+        AnalysisResult {
+            findings,
+            summary: "s".to_string(),
+            queries_executed: vec![],
+        }
+    }
+
+    #[test]
+    fn new_starts_in_created_state() {
+        let wf = InvestigationWorkflow::new(&alert());
+        assert_eq!(wf.state(), WorkflowState::Created);
+        assert!(wf.triage_result().is_none());
+        assert!(wf.findings().is_empty());
+        assert_eq!(*wf.id(), wf.record.id);
+        assert!(wf.all_agents_reported()); // 0 pending initially
+    }
+
+    #[test]
+    fn valid_transition_succeeds() {
+        let mut wf = InvestigationWorkflow::new(&alert());
+        assert!(wf.transition_to(WorkflowState::Triaging).is_ok());
+        assert_eq!(wf.state(), WorkflowState::Triaging);
+    }
+
+    #[test]
+    fn invalid_transition_is_rejected() {
+        let mut wf = InvestigationWorkflow::new(&alert());
+        // Created -> Resolved is not a legal transition
+        let err = wf.transition_to(WorkflowState::Resolved).unwrap_err();
+        assert!(matches!(
+            err,
+            OrchestratorError::InvalidStateTransition { .. }
+        ));
+        // state unchanged after a rejected transition
+        assert_eq!(wf.state(), WorkflowState::Created);
+    }
+
+    #[test]
+    fn record_triage_sets_pending_agents() {
+        let mut wf = InvestigationWorkflow::new(&alert());
+        wf.record_triage(triage(vec![AgentType::Logs, AgentType::Metrics]));
+        assert!(wf.triage_result().is_some());
+        // two recommended agents => not all reported yet
+        assert!(!wf.all_agents_reported());
+    }
+
+    #[test]
+    fn record_analysis_decrements_pending_and_collects_findings() {
+        let mut wf = InvestigationWorkflow::new(&alert());
+        wf.record_triage(triage(vec![AgentType::Logs, AgentType::Metrics]));
+
+        wf.record_analysis(
+            "logs-agent",
+            &analysis(vec![finding(FindingSeverity::High, 0.8, "err spike")]),
+        );
+        assert!(!wf.all_agents_reported()); // 1 of 2 in
+        assert_eq!(wf.findings().len(), 1);
+
+        wf.record_analysis("metrics-agent", &analysis(vec![]));
+        assert!(wf.all_agents_reported()); // 2 of 2 in
+    }
+
+    #[test]
+    fn generate_report_with_no_findings() {
+        let wf = InvestigationWorkflow::new(&alert());
+        let report = wf.generate_report();
+        assert_eq!(report.overall_confidence, 0.0);
+        assert!(report.findings.is_empty());
+        assert!(report.summary.contains("no significant findings"));
+        assert!(!report.escalated); // state is Created, not Escalated
+        assert!(report.escalation_reason.is_none());
+        assert_eq!(report.affected_resource, "payments-api");
+    }
+
+    #[test]
+    fn generate_report_sorts_by_severity_and_summarizes() {
+        let mut wf = InvestigationWorkflow::new(&alert());
+        wf.record_triage(triage(vec![AgentType::Logs]));
+        wf.record_analysis(
+            "logs-agent",
+            &analysis(vec![
+                finding(FindingSeverity::Low, 0.5, "low-finding"),
+                finding(FindingSeverity::Critical, 0.9, "crit-finding"),
+                finding(FindingSeverity::High, 0.8, "high-finding"),
+            ]),
+        );
+        let report = wf.generate_report();
+        // Critical sorts first
+        assert_eq!(report.findings[0].title, "crit-finding");
+        // overall confidence is the arithmetic mean
+        assert!((report.overall_confidence - (0.5 + 0.9 + 0.8) / 3.0).abs() < 1e-9);
+        assert!(report.summary.contains("3 findings"));
+        assert!(report.summary.contains("1 critical"));
+        assert!(report.summary.contains("crit-finding"));
+        assert!(report.agents_invoked.contains(&"triage-agent".to_string()));
+        assert!(report.agents_invoked.contains(&"logs-agent".to_string()));
+    }
+
+    #[test]
+    fn generate_report_marks_escalated_state() {
+        let mut wf = InvestigationWorkflow::new(&alert());
+        wf.transition_to(WorkflowState::Triaging).unwrap();
+        wf.transition_to(WorkflowState::Escalated).unwrap();
+        let report = wf.generate_report();
+        assert!(report.escalated);
+        assert_eq!(
+            report.escalation_reason,
+            Some("Low confidence in findings".to_string())
+        );
+    }
+}

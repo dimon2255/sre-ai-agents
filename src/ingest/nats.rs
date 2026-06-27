@@ -506,3 +506,71 @@ async fn handle_message(
         Err(IngestError::ChannelClosed) => MessageAction::FatalChannelClosed,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sre_common::config::NatsConfig;
+
+    #[test]
+    fn ingestor_state_roundtrips_through_u8() {
+        for state in [
+            NatsIngestorState::Disabled,
+            NatsIngestorState::Connecting,
+            NatsIngestorState::Running,
+            NatsIngestorState::Reconnecting,
+            NatsIngestorState::Stopped,
+        ] {
+            assert_eq!(NatsIngestorState::from_u8(state as u8), state);
+        }
+        // Any unknown byte decodes to Disabled.
+        assert_eq!(NatsIngestorState::from_u8(200), NatsIngestorState::Disabled);
+    }
+
+    #[test]
+    fn ingestor_state_as_str_labels() {
+        assert_eq!(NatsIngestorState::Disabled.as_str(), "disabled");
+        assert_eq!(NatsIngestorState::Connecting.as_str(), "connecting");
+        assert_eq!(NatsIngestorState::Running.as_str(), "running");
+        assert_eq!(NatsIngestorState::Reconnecting.as_str(), "reconnecting");
+        assert_eq!(NatsIngestorState::Stopped.as_str(), "stopped");
+    }
+
+    #[test]
+    fn set_state_writes_through_atomic() {
+        let status = AtomicU8::new(NatsIngestorState::Disabled as u8);
+        set_state(&status, NatsIngestorState::Running);
+        assert_eq!(
+            NatsIngestorState::from_u8(status.load(Ordering::Relaxed)),
+            NatsIngestorState::Running
+        );
+    }
+
+    #[test]
+    fn message_action_equality() {
+        assert_eq!(MessageAction::Continue, MessageAction::Continue);
+        assert_ne!(MessageAction::Continue, MessageAction::FatalChannelClosed);
+    }
+
+    #[tokio::test]
+    async fn backoff_returns_true_immediately_when_cancelled() {
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        // Already cancelled => returns true without waiting out the backoff.
+        assert!(backoff_or_cancel(&cancel).await);
+    }
+
+    #[tokio::test]
+    async fn build_options_without_credentials_succeeds() {
+        let cfg = NatsConfig::default();
+        // Default config has no credentials_path => anonymous ConnectOptions.
+        assert!(build_options(&cfg).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn build_options_with_missing_credentials_file_errors() {
+        let mut cfg = NatsConfig::default();
+        cfg.credentials_path = Some("/no/such/path/creds.creds".to_string());
+        assert!(build_options(&cfg).await.is_err());
+    }
+}
