@@ -108,7 +108,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "regis
 tracing-opentelemetry = "0.32"
 opentelemetry = "0.31"
 opentelemetry_sdk = { version = "0.31", features = ["metrics"] }
-opentelemetry-otlp = { version = "0.31", default-features = false, features = ["trace", "metrics", "grpc-tonic", "http-proto", "reqwest-blocking-client"] }
+opentelemetry-otlp = { version = "0.32", default-features = false, features = ["trace", "metrics", "grpc-tonic", "http-proto", "reqwest-blocking-client"] }
 
 # URL parsing
 url = "2"
