@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use async_trait::async_trait;
 
 use crate::notification::Notification;
@@ -12,7 +14,14 @@ pub struct SlackNotifier {
 impl SlackNotifier {
     pub fn new(webhook_url: String) -> Self {
         Self {
-            http: reqwest::Client::new(),
+            // A notifier with no request timeout can hang forever on a
+            // blackholed proxy; because notify runs while the investigation
+            // holds its concurrency permit, that would leak permits and wedge
+            // the dispatch loop. Bound every send.
+            http: reqwest::Client::builder()
+                .timeout(Duration::from_secs(10))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
             webhook_url,
         }
     }
@@ -49,7 +58,9 @@ impl Notifier for SlackNotifier {
             .json(&body)
             .send()
             .await
-            .map_err(|e| NotifyError::Http(e.to_string()))?;
+            // without_url() strips the webhook URL from the error — the Slack
+            // webhook secret lives in that URL's path and must never be logged.
+            .map_err(|e| NotifyError::Http(e.without_url().to_string()))?;
 
         if !resp.status().is_success() {
             let status = resp.status().as_u16();

@@ -308,7 +308,13 @@ async fn missing_triage_agent_fails_investigation() {
     let alert = make_alert("no-triage", "svc", AlertSeverity::Sev1);
     let report = orch.investigate(alert).await.unwrap();
 
-    assert!(!report.escalated);
+    // A failed investigation MUST escalate so a human is paged — the platform
+    // itself could not complete analysis (prod-hardening: Failed => escalated).
+    assert!(report.escalated);
+    assert_eq!(
+        report.escalation_reason.as_deref(),
+        Some("Investigation failed — the platform could not complete analysis")
+    );
     let wid = Uuid::parse_str(&report.investigation_id).unwrap();
     let wf = store.get_workflow(&wid).await.unwrap().unwrap();
     assert_eq!(wf.state, WorkflowState::Failed);

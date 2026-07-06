@@ -8,6 +8,10 @@ on:
   schedule:
     - cron: '0 8 * * 1'  # Weekly Monday 8am UTC
 
+# Least-privilege GITHUB_TOKEN: dependency audit only reads the repo.
+permissions:
+  contents: read
+
 jobs:
   audit:
     name: Dependency Audit

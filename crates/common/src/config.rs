@@ -649,7 +649,13 @@ fn default_service_name() -> String {
 }
 
 fn default_environment() -> String {
-    "staging".to_string()
+    // A bare checkout / `cargo run` is a development context. Real deployments
+    // set SRE__OBSERVABILITY__ENVIRONMENT explicitly (Terraform sets "staging" /
+    // "production"); this default only applies when nothing overrides it. It is
+    // deliberately a dev value so the fail-closed startup guards (mock auth,
+    // unauthenticated webhook) never block local dev, yet still fire in
+    // staging/prod where the environment is set explicitly.
+    "development".to_string()
 }
 
 impl ObservabilityConfig {

@@ -102,6 +102,20 @@ impl ApprovalGate {
             };
         }
 
+        // 1b. Reject a non-finite / out-of-range confidence before any
+        // auto-approve path. IEEE-754 makes `NaN < floor` false, so without this
+        // a NaN (or out-of-range) confidence would slip past the auto-approve
+        // floor and the progressive-trust cooldown. Route to a human instead.
+        if !proposal.confidence.is_finite() || !(0.0..=1.0).contains(&proposal.confidence) {
+            return GateDecision::RequiresApproval {
+                approvals_needed: 1,
+                reasons: vec![format!(
+                    "confidence {} is not a valid probability in [0,1]",
+                    proposal.confidence
+                )],
+            };
+        }
+
         // 2. Risk-based routing.
         match risk {
             RiskLevel::ReadOnly => {} // proceed to guardrail reservation
