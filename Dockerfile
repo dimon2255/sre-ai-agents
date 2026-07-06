@@ -1,5 +1,5 @@
 # Stage 1: Build
-FROM rust:1.88-bookworm AS builder
+FROM rust:1.96-bookworm AS builder
 WORKDIR /app
 # protoc is required by build.rs to compile the gRPC service definitions (Phase 2b).
 RUN apt-get update \
