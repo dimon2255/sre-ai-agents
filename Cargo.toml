@@ -135,7 +135,7 @@ axum = "0.8"
 
 # Webhook HMAC authentication (ADR-008)
 hmac = "0.12"
-sha2 = "0.10"
+sha2 = "0.11"
 subtle = "2.5"
 hex = "0.4"
 
