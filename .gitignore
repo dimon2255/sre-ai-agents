@@ -40,3 +40,6 @@ override.tf.json
 *_override.tf.json
 *.tfvars
 !*.tfvars.example
+
+# Windows bash crash dumps
+*.stackdump
