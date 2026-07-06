@@ -302,3 +302,50 @@ cargo llvm-cov --workspace --ignore-run-fail --summary-only
 | Token/credential management | High | Managed Identity in Azure, config-driven auth mode (mock for dev) |
 | Unauthenticated webhook endpoint | Medium | Phase 1: ACA ingress only. Phase 2: ADR-008 (shared secret / Azure AD) |
 | Ephemeral audit trail on staging | ~~High~~ Resolved | **Resolved 2026-04-19**: Postgres cut-over shipped (Phase 2a task #3). App now writes to `sre_agents` DB on `psql-sre-agents-staging`; `SRE__STORE__DATABASE_URL` composed from `SRE_AGENTS_DB_PASSWORD` GitHub secret. Audit history survives container restarts. |
+
+---
+
+## Production-Readiness Hardening (2026-07-05)
+
+**Trigger**: pre-go-live audit — seven specialist review passes (AppSec, security
+architecture, SRE reliability, CI/CD & IaC, code correctness, database, threat
+model). Verdict: **secure- and safe-by-default** (all high-risk subsystems default
+off; KQL is template-sanitized per ADR-005; SQL is fully parameterized), but
+several silent-degradation and reliability defects required fixing first. Branch:
+`harden/prod-readiness`. See [ADR-022](adr/022-production-hardening-guards.md).
+
+### Fixed
+
+| # | Severity | Issue | Fix |
+|---|----------|-------|-----|
+| 1 | Blocker | Agents `break` out of `run()` on a closed per-investigation reply channel → one slow (>30s) Azure query permanently kills the agent; if TriageAgent dies every investigation fails. | `break`→`continue` in all 6 agents. |
+| 2 | Blocker | Graceful drain listened for SIGINT only; ACA sends SIGTERM → drain was dead code, every deploy/scale-in dropped in-flight + queued work. | `shutdown_signal()` selects over Ctrl-C and SIGTERM. |
+| 3 | Blocker | Failed-query findings had `confidence: 1.0` and `Failed` investigations weren't escalated → an Azure outage reported "Resolved" at full confidence and paged no one. | Failure findings `confidence: 0.0`; `Failed` state now escalates + pages with a failure reason. |
+| 4 | Blocker | Webhook fails open (unauthenticated) when `hmac_secret` unset; mock auth / remediation enablable in prod with no guard. | Fail-closed startup guards (ADR-022) for HMAC secret, `auth_mode=mock`, and remediation-vs-real-Azure. |
+| 5 | High | HMAC middleware buffered the body with `usize::MAX` before auth → pre-auth memory-exhaustion DoS on the public endpoint. | Cap `to_bytes` at 64 KiB. |
+| 6 | High | Liveness heartbeat was a free-running timer → a dead/wedged dispatch loop stayed "healthy" forever. | Heartbeat owned by the dispatch loop (alert + interval tick); a dead loop goes stale → ACA restarts. |
+| 7 | High | Notifier HTTP clients had no timeout and run while holding the investigation permit (semaphore wedge); Slack/Teams secret leaked into logs via `reqwest::Error` URL. | 10s timeout on all 3 notifiers; `without_url()` strips the secret-bearing URL. |
+| 8 | High | DB pool: 5 conns (< max_concurrent 10), no statement/idle/acquire timeouts → a failover-stuck query wedged all slots incl. the readiness ping. | Pool 16 conns + `statement_timeout`/`idle_in_transaction`/`acquire_timeout`/`max_lifetime`. |
+| 9 | High | CI/CD: `${{ github.event.release.tag_name }}` interpolated into `run:` blocks holding Azure OIDC creds (shell injection); no `permissions:` blocks; TF secrets on argv. | Untrusted inputs via env + charset validation; `permissions: contents: read`; secrets via `TF_VAR_*`; Dependabot added. |
+| 10 | Medium | NaN/out-of-range confidence bypassed the auto-approve floor and trust cooldown (`NaN < x` is false). | Gate rejects non-finite / out-of-[0,1] confidence → routes to human. |
+| 11 | Medium | Azure "Resolved" notifications ran full investigations; stuck-state + report-write failures swallowed silently. | Ignore `monitorCondition=Resolved`; persist `Failed` on the unexpected-payload path; log terminal-state + report-write failures. |
+
+Verification: `cargo build` / `clippy -D warnings` / `fmt --check` clean; ~263 unit
+tests + Docker-free integration suites pass (one test updated for the corrected
+`Failed ⇒ escalated` behavior). Docker-gated Postgres/NATS testcontainer suites
+not runnable in this environment.
+
+### Go-live gate — REQUIRED before enabling (not fixed here; larger efforts)
+
+- **Real Azure auth** — `crates/azure/src/auth.rs` `AzureCredentialProvider` is a
+  placeholder reading a static `AZURE_ACCESS_TOKEN`; wire `DefaultAzureCredential`
+  (Managed Identity) with token refresh. **Hard blocker for any real go-live.**
+- **Remediation** — requires ADR-011 dedicated identity + ADR-021 durable
+  coordination. Guarded off; do not enable.
+- **ChatOps / gRPC** — unauthenticated on a public port; add Slack signature
+  verification / gRPC auth + semaphore routing before enabling.
+- **Infra** — no prod stack (staging-only), `min_replicas = 1` (no HA), shared
+  `sre-agents-identity`, secrets in TF state (→ Key Vault); prefer IP-restricted /
+  internal ingress; add image scanning + SHA-pinned actions.
+- **Data** — `event_log`/`workflows` grow unbounded (add retention); redact Azure
+  exception text before external LLM egress if reasoning is enabled.

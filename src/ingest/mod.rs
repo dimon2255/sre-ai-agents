@@ -77,6 +77,22 @@ pub fn parse_and_enqueue(
     let alert_info = AzureAlertsClient::parse_common_alert(payload)
         .map_err(|e| IngestError::Parse(e.to_string()))?;
 
+    // Azure delivers both "Fired" and "Resolved" notifications through the same
+    // webhook/action group. Running an investigation for a "Resolved" condition
+    // would page for something that has already recovered, so acknowledge it
+    // upstream but don't act on it. Unknown/empty conditions still investigate.
+    if alert_info
+        .monitor_condition
+        .eq_ignore_ascii_case("Resolved")
+    {
+        warn!(
+            alert_id = %alert_info.alert_id,
+            condition = %alert_info.monitor_condition,
+            "Ignoring resolved alert notification — condition already recovered"
+        );
+        return Ok(IngestOutcome::Ignored);
+    }
+
     if let Some(ref self_id) = config.webhook.self_resource_id {
         // Azure resource IDs are case-insensitive by ARM contract
         // (Microsoft.Web vs microsoft.web are the same resource). Compare

@@ -130,7 +130,14 @@ impl InvestigationWorkflow {
 
         // Build summary
         let summary = self.build_summary(&sorted_findings);
-        let escalated = matches!(self.record.state, WorkflowState::Escalated);
+        // A Failed investigation (triage timed out, an agent died, or the
+        // platform otherwise could not complete analysis) MUST reach a human —
+        // it is the one case where automation produced nothing yet something is
+        // wrong. Treat both Escalated and Failed as "escalated" for delivery.
+        let escalated = matches!(
+            self.record.state,
+            WorkflowState::Escalated | WorkflowState::Failed
+        );
 
         InvestigationReport {
             investigation_id: self.record.id.to_string(),
@@ -144,10 +151,12 @@ impl InvestigationWorkflow {
             summary,
             agents_invoked: self.agents_invoked.clone(),
             escalated,
-            escalation_reason: if escalated {
-                Some("Low confidence in findings".to_string())
-            } else {
-                None
+            escalation_reason: match self.record.state {
+                WorkflowState::Failed => Some(
+                    "Investigation failed — the platform could not complete analysis".to_string(),
+                ),
+                WorkflowState::Escalated => Some("Low confidence in findings".to_string()),
+                _ => None,
             },
         }
     }

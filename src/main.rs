@@ -421,6 +421,13 @@ async fn bootstrap(
 
 /// Run the webhook server with orchestrator loop and health probes.
 async fn run_server(config: PlatformConfig) -> anyhow::Result<()> {
+    // Fail-closed production safety gates. Checked before any resource is
+    // touched so a misconfiguration is a fast, loud boot failure rather than a
+    // silently-degraded running service. Dev environments are exempted.
+    enforce_webhook_auth_policy(&config)?;
+    enforce_auth_mode_policy(&config)?;
+    enforce_remediation_safety_policy(&config)?;
+
     let listen_addr = format!(
         "{}:{}",
         config.webhook.listen_addr, config.webhook.listen_port
@@ -583,15 +590,10 @@ async fn run_server(config: PlatformConfig) -> anyhow::Result<()> {
         None
     };
 
-    // Heartbeat tick — independent of investigations so liveness probe
-    // stays healthy even during long-running Azure API calls.
-    let hb = heartbeat.clone();
-    tokio::spawn(async move {
-        loop {
-            hb.store(webhook::now_epoch_ms(), Ordering::Relaxed);
-            tokio::time::sleep(Duration::from_secs(5)).await;
-        }
-    });
+    // NOTE: the liveness heartbeat is owned by the orchestrator dispatch loop
+    // below — NOT a free-running timer. A free-running timer keeps the liveness
+    // probe green even when the dispatch loop is dead or wedged; coupling the
+    // heartbeat to the loop means such a wedge goes stale and ACA restarts us.
 
     // Notification engine (Phase 2b): delivers reports/escalations to
     // Slack/Teams/PagerDuty. `None` when notifications are disabled.
@@ -602,21 +604,56 @@ async fn run_server(config: PlatformConfig) -> anyhow::Result<()> {
     }
 
     // Orchestrator dispatch loop — spawns each investigation as a separate
-    // task, gated by a semaphore for concurrency control.
+    // task, gated by a semaphore for concurrency control. The loop also owns the
+    // liveness heartbeat: it stamps `heartbeat` on every alert and on a periodic
+    // tick, so if this task dies or wedges the timestamp goes stale and the
+    // liveness probe restarts the container.
     let orch_semaphore = investigations.clone();
     let max_concurrent = config.orchestrator.max_concurrent_investigations;
+    let hb = heartbeat.clone();
     tokio::spawn(async move {
         info!("Orchestrator loop started (max_concurrent={max_concurrent})");
-        while let Some(alert_info) = alert_rx.recv().await {
+        let mut heartbeat_tick = tokio::time::interval(Duration::from_secs(5));
+        heartbeat_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            // Wait for the next alert while keeping the heartbeat fresh during
+            // idle periods (recv is a legitimate idle wait, not a wedge).
+            let alert_info = tokio::select! {
+                _ = heartbeat_tick.tick() => {
+                    hb.store(webhook::now_epoch_ms(), Ordering::Relaxed);
+                    continue;
+                }
+                maybe_alert = alert_rx.recv() => {
+                    match maybe_alert {
+                        Some(a) => {
+                            hb.store(webhook::now_epoch_ms(), Ordering::Relaxed);
+                            a
+                        }
+                        None => break,
+                    }
+                }
+            };
+
             let alert_id = alert_info.alert_id.clone();
             let notifier = notification_engine.clone();
 
-            // Acquire semaphore permit before spawning investigation
-            let permit = match orch_semaphore.clone().acquire_owned().await {
-                Ok(p) => p,
-                Err(_) => {
-                    error!("Investigation semaphore closed");
-                    break;
+            // Acquire a permit before spawning. Keep ticking the heartbeat while
+            // waiting so a legitimately-full semaphore under sustained load is
+            // not mistaken for a dead loop.
+            let permit = loop {
+                tokio::select! {
+                    _ = heartbeat_tick.tick() => {
+                        hb.store(webhook::now_epoch_ms(), Ordering::Relaxed);
+                    }
+                    acquired = orch_semaphore.clone().acquire_owned() => {
+                        match acquired {
+                            Ok(p) => break p,
+                            Err(_) => {
+                                error!("Investigation semaphore closed — orchestrator loop exiting");
+                                return;
+                            }
+                        }
+                    }
                 }
             };
 
@@ -677,7 +714,7 @@ async fn run_server(config: PlatformConfig) -> anyhow::Result<()> {
     let shutdown_cancel = cancel.clone();
     axum::serve(listener, app)
         .with_graceful_shutdown(async move {
-            tokio::signal::ctrl_c().await.ok();
+            shutdown_signal().await;
             info!("Shutdown signal received — tripping cancellation token");
             shutdown_cancel.cancel();
         })
@@ -748,9 +785,7 @@ fn enforce_nats_credentials_policy(config: &PlatformConfig) -> anyhow::Result<()
     // `observability.environment` is the canonical deployment-environment
     // signal already wired through Terraform (`SRE__OBSERVABILITY__ENVIRONMENT`).
     // Reuse it here rather than introducing a parallel notion of "env".
-    let env = config.observability.environment.to_lowercase();
-    let dev_envs = ["dev", "development", "local", "test"];
-    if dev_envs.iter().any(|d| env == *d) {
+    if is_dev_environment(config) {
         return Ok(());
     }
 
@@ -760,6 +795,115 @@ fn enforce_nats_credentials_policy(config: &PlatformConfig) -> anyhow::Result<()
          SRE__NATS__CREDENTIALS_PATH or disable NATS (SRE__NATS__ENABLED=false).",
         config.observability.environment
     )
+}
+
+/// Whether the platform is running in a development-class environment. Dev
+/// environments relax the fail-closed policies (mock auth, unauthenticated
+/// webhook, anonymous NATS) that must never be permitted in staging/production.
+/// Real deployments set `SRE__OBSERVABILITY__ENVIRONMENT` explicitly.
+fn is_dev_environment(config: &PlatformConfig) -> bool {
+    matches!(
+        config.observability.environment.to_lowercase().as_str(),
+        "dev" | "development" | "local" | "test"
+    )
+}
+
+/// Refuse to boot with an unauthenticated webhook outside dev. The webhook is
+/// the primary ingress and reaches the investigate (and, when enabled, the
+/// remediate) path, so a missing HMAC secret in staging/prod is a hard stop,
+/// not a warning. Mirrors [`enforce_nats_credentials_policy`].
+fn enforce_webhook_auth_policy(config: &PlatformConfig) -> anyhow::Result<()> {
+    if is_dev_environment(config) {
+        return Ok(());
+    }
+    let has_secret = config
+        .webhook
+        .hmac_secret
+        .as_deref()
+        .is_some_and(|s| !s.is_empty());
+    if !has_secret {
+        anyhow::bail!(
+            "webhook.hmac_secret is required in environment='{}' but is not set. \
+             Set SRE__WEBHOOK__HMAC_SECRET (>= 32 bytes) or run in a dev \
+             environment. Refusing to start an unauthenticated webhook.",
+            config.observability.environment
+        );
+    }
+    Ok(())
+}
+
+/// Refuse to boot with mock Azure auth outside dev. `auth_mode="mock"` returns a
+/// fake token, so every KQL query is meaningless and (with remediation enabled)
+/// ARM writes route to a mock client — a silent no-op that still looks healthy.
+fn enforce_auth_mode_policy(config: &PlatformConfig) -> anyhow::Result<()> {
+    if is_dev_environment(config) {
+        return Ok(());
+    }
+    if config.azure.auth_mode.eq_ignore_ascii_case("mock") {
+        anyhow::bail!(
+            "azure.auth_mode=\"mock\" is not permitted in environment='{}'. \
+             Set SRE__AZURE__AUTH_MODE=azure. Refusing to start with fake Azure \
+             credentials outside a dev environment.",
+            config.observability.environment
+        );
+    }
+    Ok(())
+}
+
+/// Refuse to enable remediation against real Azure until identity separation
+/// (ADR-011) and durable multi-replica coordination (ADR-021) land. The write
+/// path currently reuses the read managed identity and the approval gate's
+/// rate-limit / mutual-exclusion state is per-replica, so auto-remediation on
+/// real Azure is unsafe. Fail closed rather than trust a config comment.
+fn enforce_remediation_safety_policy(config: &PlatformConfig) -> anyhow::Result<()> {
+    if !config.remediation.enabled {
+        return Ok(());
+    }
+    // Mock auth uses the mock ARM client (no real mutation) — safe for dev/test.
+    if config.azure.auth_mode.eq_ignore_ascii_case("mock") {
+        return Ok(());
+    }
+    anyhow::bail!(
+        "remediation.enabled=true with auth_mode='{}' is blocked. The remediation \
+         write path reuses the read managed identity (ADR-011 identity separation \
+         not yet implemented) and the approval gate's rate limits and resource \
+         locks are per-replica (ADR-021 durable coordination not yet implemented), \
+         so auto-remediation against real Azure is unsafe. Keep \
+         SRE__REMEDIATION__ENABLED=false until a dedicated remediation identity \
+         and durable coordination are in place.",
+        config.azure.auth_mode
+    );
+}
+
+/// Completes when the process receives a shutdown signal: Ctrl-C (SIGINT) on
+/// any platform, or SIGTERM on Unix. ACA / Kubernetes send SIGTERM before the
+/// grace-period SIGKILL, so handling it is what makes the graceful drain run —
+/// previously only SIGINT was handled, so the drain was dead code on ACA.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c().await.ok();
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut sig) => {
+                sig.recv().await;
+            }
+            Err(e) => {
+                warn!(error = %e, "Failed to install SIGTERM handler — SIGTERM will not drain");
+                std::future::pending::<()>().await;
+            }
+        }
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => info!("Received SIGINT (Ctrl-C) — starting graceful shutdown"),
+        _ = terminate => info!("Received SIGTERM — starting graceful shutdown"),
+    }
 }
 
 /// Run a manual investigation from the CLI
@@ -811,4 +955,74 @@ async fn run_investigation(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cfg(env: &str) -> PlatformConfig {
+        let mut c = PlatformConfig::default();
+        c.observability.environment = env.to_string();
+        c
+    }
+
+    #[test]
+    fn dev_environment_detection() {
+        assert!(is_dev_environment(&cfg("development")));
+        assert!(is_dev_environment(&cfg("local")));
+        assert!(is_dev_environment(&cfg("TEST"))); // case-insensitive
+        assert!(!is_dev_environment(&cfg("staging")));
+        assert!(!is_dev_environment(&cfg("production")));
+    }
+
+    #[test]
+    fn webhook_auth_fails_closed_outside_dev() {
+        // Production with no HMAC secret must refuse to boot.
+        let mut prod = cfg("production");
+        prod.webhook.hmac_secret = None;
+        assert!(enforce_webhook_auth_policy(&prod).is_err());
+
+        // A configured secret lets it boot.
+        prod.webhook.hmac_secret = Some("a-32-byte-or-longer-shared-secret!".to_string());
+        assert!(enforce_webhook_auth_policy(&prod).is_ok());
+
+        // Dev is exempt even with no secret (local ergonomics).
+        let mut dev = cfg("development");
+        dev.webhook.hmac_secret = None;
+        assert!(enforce_webhook_auth_policy(&dev).is_ok());
+    }
+
+    #[test]
+    fn mock_auth_rejected_outside_dev() {
+        let mut prod = cfg("production");
+        prod.azure.auth_mode = "mock".to_string();
+        assert!(enforce_auth_mode_policy(&prod).is_err());
+
+        prod.azure.auth_mode = "azure".to_string();
+        assert!(enforce_auth_mode_policy(&prod).is_ok());
+
+        // Dev may use the mock token provider.
+        let mut dev = cfg("development");
+        dev.azure.auth_mode = "mock".to_string();
+        assert!(enforce_auth_mode_policy(&dev).is_ok());
+    }
+
+    #[test]
+    fn remediation_blocked_against_real_azure() {
+        let mut prod = cfg("production");
+        prod.remediation.enabled = true;
+        prod.azure.auth_mode = "azure".to_string();
+        // ADR-011 / ADR-021 not yet implemented → must fail closed.
+        assert!(enforce_remediation_safety_policy(&prod).is_err());
+
+        // Mock ARM client performs no real mutation → safe.
+        prod.azure.auth_mode = "mock".to_string();
+        assert!(enforce_remediation_safety_policy(&prod).is_ok());
+
+        // Remediation disabled is always fine, even against real Azure.
+        prod.remediation.enabled = false;
+        prod.azure.auth_mode = "azure".to_string();
+        assert!(enforce_remediation_safety_policy(&prod).is_ok());
+    }
 }

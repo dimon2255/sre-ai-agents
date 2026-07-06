@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use async_trait::async_trait;
 
 use sre_common::findings::FindingSeverity;
@@ -17,7 +19,12 @@ pub struct PagerDutyNotifier {
 impl PagerDutyNotifier {
     pub fn new(routing_key: String) -> Self {
         Self {
-            http: reqwest::Client::new(),
+            // Bounded so a hung PagerDuty endpoint cannot hold the
+            // investigation's concurrency permit open indefinitely.
+            http: reqwest::Client::builder()
+                .timeout(Duration::from_secs(10))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
             routing_key,
         }
     }

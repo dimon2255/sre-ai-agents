@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
 use std::str::FromStr;
+use std::time::Duration;
 use tracing::{debug, info};
 use uuid::Uuid;
 
@@ -21,10 +22,23 @@ impl PgStore {
     /// Create a new PgStore, running migrations
     pub async fn new(database_url: &str) -> Result<Self, StoreError> {
         let options = PgConnectOptions::from_str(database_url)
-            .map_err(|e| StoreError::Database(e.to_string()))?;
+            .map_err(|e| StoreError::Database(e.to_string()))?
+            // Server-side safety net: a query stuck behind a Postgres failover
+            // must not pin a pool connection forever (the readiness probe shares
+            // this pool). statement_timeout caps any single statement; the
+            // idle-in-transaction timeout releases row locks held by a wedged txn.
+            .options([
+                ("statement_timeout", "15000"),
+                ("idle_in_transaction_session_timeout", "30000"),
+            ]);
 
         let pool = PgPoolOptions::new()
-            .max_connections(5)
+            // Sized above orchestrator.max_concurrent_investigations (default 10)
+            // so concurrent investigation writes never starve the readiness ping.
+            .max_connections(16)
+            .acquire_timeout(Duration::from_secs(10))
+            .max_lifetime(Duration::from_secs(30 * 60))
+            .idle_timeout(Duration::from_secs(10 * 60))
             .connect_with(options)
             .await
             .map_err(|e| StoreError::Database(e.to_string()))?;

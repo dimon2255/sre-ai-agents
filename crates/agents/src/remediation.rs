@@ -271,8 +271,12 @@ impl SreAgent for RemediationAgent {
                     .with_parent(message.id);
 
                     if reply_tx.send(response).await.is_err() {
-                        warn!("RemediationAgent: reply channel closed");
-                        break;
+                        // The per-investigation reply channel is closed (the
+                        // orchestrator already timed out and moved on). This is a
+                        // per-request condition, not a shutdown signal — keep
+                        // serving future investigations instead of exiting run().
+                        warn!("RemediationAgent: reply channel closed for this investigation");
+                        continue;
                     }
                 }
                 AgentPayload::HealthCheck => {

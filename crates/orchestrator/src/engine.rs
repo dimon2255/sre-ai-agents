@@ -455,6 +455,13 @@ impl Orchestrator {
                             std::mem::discriminant(&other)
                         );
                         workflow.transition_to(WorkflowState::Failed)?;
+                        if let Err(e) = self
+                            .store
+                            .update_state(&correlation_id, WorkflowState::Failed)
+                            .await
+                        {
+                            error!(error = %e, "Failed to persist Failed state");
+                        }
                         return Ok(workflow.generate_report());
                     }
                 }
@@ -566,7 +573,9 @@ impl Orchestrator {
         };
 
         workflow.transition_to(final_state)?;
-        let _ = self.store.update_state(&correlation_id, final_state).await;
+        if let Err(e) = self.store.update_state(&correlation_id, final_state).await {
+            error!(error = %e, workflow_id = %correlation_id, state = %final_state, "Failed to persist terminal workflow state");
+        }
 
         let mut report = workflow.generate_report();
 
@@ -627,7 +636,9 @@ impl Orchestrator {
         // store via the learning loop, so future investigations retrieve it.
         self.record_incident(&report, &alert, rca_root_cause).await;
 
-        let _ = self.store.store_report(&correlation_id, &report).await;
+        if let Err(e) = self.store.store_report(&correlation_id, &report).await {
+            error!(error = %e, workflow_id = %correlation_id, "Failed to persist investigation report");
+        }
 
         // Record outcome fields on the root span for trace filtering
         let span = tracing::Span::current();

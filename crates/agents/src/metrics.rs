@@ -89,7 +89,7 @@ impl MetricsAgent {
                             description: format!(
                                 "Failed to query metrics for App Insights {app_id}: {e}"
                             ),
-                            confidence: 1.0,
+                            confidence: 0.0, // failed query = absence of evidence; keeps escalation honest
                             observed_at: None,
                             source_agent: self.id.to_string(),
                             evidence: vec![],
@@ -461,8 +461,12 @@ impl SreAgent for MetricsAgent {
                     .with_parent(message.id);
 
                     if reply_tx.send(response).await.is_err() {
-                        warn!("MetricsAgent: reply channel closed");
-                        break;
+                        // The per-investigation reply channel is closed (the
+                        // orchestrator already timed out and moved on). This is a
+                        // per-request condition, not a shutdown signal — keep
+                        // serving future investigations instead of exiting run().
+                        warn!("MetricsAgent: reply channel closed for this investigation");
+                        continue;
                     }
                 }
                 AgentPayload::HealthCheck => {

@@ -85,9 +85,17 @@ pub async fn verify(
         return Err(StatusCode::UNAUTHORIZED);
     }
 
-    let body_bytes = axum::body::to_bytes(body, usize::MAX)
+    // Bound the body BEFORE buffering it. This middleware runs *before*
+    // signature verification, so an unauthenticated client must not be able to
+    // force an unbounded allocation (a `usize::MAX` cap here is a pre-auth
+    // memory-exhaustion DoS). The router's `DefaultBodyLimit` does not apply to
+    // this manual `to_bytes` call, so we enforce the same 64 KiB ceiling here —
+    // Azure Common Alert Schema payloads are 2–5 KB. `to_bytes` returns Err when
+    // the body exceeds the limit.
+    const MAX_WEBHOOK_BODY_BYTES: usize = 64 * 1024;
+    let body_bytes = axum::body::to_bytes(body, MAX_WEBHOOK_BODY_BYTES)
         .await
-        .map_err(|_| reject("failed to buffer request body"))?;
+        .map_err(|_| reject("request body exceeds 64 KiB limit or is unreadable"))?;
 
     let mut mac =
         HmacSha256::new_from_slice(&auth.secret).expect("HMAC-SHA256 accepts any key length");
