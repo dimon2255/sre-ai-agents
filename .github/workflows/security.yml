@@ -12,16 +12,52 @@ on:
 permissions:
   contents: read
 
+env:
+  # Pinned so the binary cache key is meaningful and the security gate is
+  # reproducible. Bump deliberately. Advisory data is fetched fresh from
+  # RustSec on every run, so pinning the tool does not stale coverage.
+  CARGO_AUDIT_VERSION: '0.22.2'
+
 jobs:
   audit:
     name: Dependency Audit
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+
+      # cargo-audit was rebuilt from source on every run (~6 min), which put
+      # crates.io and the tool's whole build graph on the critical path of a
+      # weekly security gate. Cache the built binary; compile only on a miss.
+      # ImageOS/arch are in the key so a runner-image upgrade cannot restore a
+      # binary built against an older glibc.
+      - name: Cache cargo-audit binary
+        id: cache-cargo-audit
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ env.ImageOS }}-cargo-audit-${{ env.CARGO_AUDIT_VERSION }}
+
       - name: Install cargo-audit
-        run: cargo install cargo-audit
+        if: steps.cache-cargo-audit.outputs.cache-hit != 'true'
+        # --locked pins the install to cargo-audit's own lockfile so an upstream
+        # semver-compatible bump cannot break the security gate's build.
+        run: cargo install cargo-audit --version ${{ env.CARGO_AUDIT_VERSION }} --locked
+
       - name: Run audit
+        # Retried because cargo-audit's advisory-DB fetch is a single
+        # unauthenticated git-upload-pack call with no internal retry: run
+        # 30800291641 (2026-08-03) failed the entire gate on a transient
+        # "IO error occurred when talking to the server". A real vulnerability
+        # still fails all three attempts and ends red.
+        #
+        # Deliberately NOT using `--no-fetch` with a pre-checked-out advisory
+        # DB: that flag also drops the yanked-crate check into local-index-only
+        # mode, which on a clean runner degrades it to ~480 "No such crate in
+        # crates.io index" errors that do not fail the job. Losing yanked-crate
+        # coverage silently is worse than the flake this would have fixed.
+        #
         # RUSTSEC-2023-0071: rsa timing sidechannel — transitive dep from
         # sqlx-macros -> sqlx-mysql. We only use sqlx-postgres; sqlx-mysql
         # is pulled in as a macro-support transitive but never linked at
@@ -33,4 +69,19 @@ jobs:
         # `reqwest -> quinn -> rand` and `opentelemetry_sdk -> rand`. We do
         # not install a custom logger that touches rand, so the unsound
         # path is unreachable. Revisit when `rand` 0.9.3+ ships the fix.
-        run: cargo audit --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2026-0097
+        run: |
+          set -uo pipefail
+          for attempt in 1 2 3; do
+            if cargo audit \
+                 --ignore RUSTSEC-2023-0071 \
+                 --ignore RUSTSEC-2026-0097; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              backoff=$((attempt * 20))
+              echo "::warning::cargo audit attempt ${attempt}/3 failed; retrying in ${backoff}s"
+              sleep "${backoff}"
+            fi
+          done
+          echo "::error::cargo audit failed after 3 attempts"
+          exit 1
