@@ -1,8 +1,9 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use testcontainers_modules::postgres::Postgres;
 use testcontainers_modules::testcontainers::runners::AsyncRunner;
-use testcontainers_modules::testcontainers::{ContainerAsync, ImageExt};
+use testcontainers_modules::testcontainers::{ContainerAsync, Image, ImageExt};
 use tokio::sync::mpsc;
 
 use sre_agents::traits::SreAgent;
@@ -14,6 +15,33 @@ use sre_common::messages::*;
 use sre_orchestrator::{AgentRouter, Orchestrator};
 use sre_store::{EventLog, PgStore, WorkflowStore};
 
+/// Resolve a container's published host port, tolerating Docker's asynchronous
+/// port publication.
+///
+/// `start()` returns once the image's readiness condition is met, but the host
+/// port binding shows up in `docker inspect` slightly later. Querying in that
+/// window returns `PortNotExposed` even though the container is healthy, which
+/// is what made the CI `Test` job fail intermittently (run 30824576551 on main,
+/// and PRs #56/#58/#59) while the identical code passed on other runs. Poll for
+/// a bounded window instead of failing on the first miss.
+async fn host_port<I: Image>(container: &ContainerAsync<I>, internal_port: u16) -> u16 {
+    const ATTEMPTS: u32 = 20;
+    const DELAY: Duration = Duration::from_millis(250);
+
+    for attempt in 1..=ATTEMPTS {
+        match container.get_host_port_ipv4(internal_port).await {
+            Ok(port) => return port,
+            Err(err) if attempt == ATTEMPTS => panic!(
+                "container never published host port {internal_port} after {ATTEMPTS} attempts over {:?}: {err}",
+                DELAY * ATTEMPTS
+            ),
+            Err(_) => tokio::time::sleep(DELAY).await,
+        }
+    }
+
+    unreachable!("loop returns or panics on the final attempt")
+}
+
 async fn setup() -> (
     Orchestrator,
     Vec<tokio::task::JoinHandle<()>>,
@@ -24,7 +52,7 @@ async fn setup() -> (
         .start()
         .await
         .unwrap();
-    let port = container.get_host_port_ipv4(5432).await.unwrap();
+    let port = host_port(&container, 5432).await;
     let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
 
     let store = Arc::new(PgStore::new(&url).await.unwrap());
@@ -166,7 +194,7 @@ async fn test_workflow_state_persisted() {
         .start()
         .await
         .unwrap();
-    let port = container.get_host_port_ipv4(5432).await.unwrap();
+    let port = host_port(&container, 5432).await;
     let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
 
     let store = Arc::new(PgStore::new(&url).await.unwrap());
