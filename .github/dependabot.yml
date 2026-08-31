@@ -1,19 +1,46 @@
 # Keeps dependencies — including SHA-pinned GitHub Actions — current.
 # Pinning actions to a commit SHA (supply-chain hardening) is only safe if a
 # bot keeps the pins fresh; that is Dependabot's job here.
+#
+# Everything is grouped. Ungrouped, each bump arrived as its own PR against a
+# shared Cargo.lock, so they could not be merged in any order without rebasing
+# the rest, and each carried Dependabot's own partial lockfile resolution --
+# which twice regressed a transitive dep (PR #55 downgraded windows-sys
+# 0.61.2 -> 0.52.0, PR #59 downgraded getrandom 0.4.3 -> 0.3.4). Six such PRs
+# accumulated and had to be closed in favour of one hand-consolidated PR (#60).
+# Grouping makes Dependabot do that consolidation itself: one PR, one lockfile
+# resolution, one CI run per week.
 version: 2
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      github-actions:
+        patterns: ["*"]
 
   - package-ecosystem: "cargo"
     directory: "/"
     schedule:
       interval: "weekly"
+    # Bounds the blast radius if a group ever fails to resolve and Dependabot
+    # falls back to individual PRs.
+    open-pull-requests-limit: 5
+    groups:
+      # Minor and patch bumps are the routine case and are safe to batch: they
+      # are semver-compatible, so the group resolves as one lockfile update.
+      cargo-minor-patch:
+        update-types: ["minor", "patch"]
+      # Major bumps stay in their own PR. They break APIs (async-nats 0.48->0.50
+      # needed a manifest edit; reqwest 0.13 is currently blocked because
+      # opentelemetry-otlp 0.32 pins 0.12) and need per-crate review, which a
+      # batched PR would hide.
 
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      docker:
+        patterns: ["*"]

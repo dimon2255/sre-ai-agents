@@ -349,3 +349,49 @@ not runnable in this environment.
   internal ingress; add image scanning + SHA-pinned actions.
 - **Data** — `event_log`/`workflows` grow unbounded (add retention); redact Azure
   exception text before external LLM egress if reasoning is enabled.
+
+---
+
+## Dependency & CI Maintenance (2026-08-31)
+
+Cleared the six accumulated Dependabot PRs (#54–#59) and fixed two CI failures
+that had main red. Landed as [#60](https://github.com/dimon2255/sre-ai-agents/pull/60)
+(consolidation) and [#61](https://github.com/dimon2255/sre-ai-agents/pull/61)
+(grouping policy).
+
+### Fixed
+
+| # | Severity | Issue | Fix |
+|---|----------|-------|-----|
+| 1 | High | `Security Audit` red on main since 2026-08-24 on a **real** advisory: RUSTSEC-2026-0258, `h2` 0.4.15 "unbounded empty DATA frames". The workflow was reporting correctly — the finding was genuine. | Lockfile refresh → `h2` 0.4.19. Also cleared the yanked `chacha20` 0.10.1 → 0.10.2. `cargo audit` now exits 0 with no allowed warnings. |
+| 2 | High | `CI / Test` intermittently red since 2026-08-03 (main, and PRs #56/#58/#59). `ContainerAsync::get_host_port_ipv4` inspects Docker live and returns `PortNotExposed` when the host port binding has not been published yet; `start()` waits only for the image readiness condition, not port publication. The two race. | All six call sites poll for a bounded 5s window. Reproduced pre-fix (12/13 passed, 1 failed on identical code); 13/13 across three consecutive runs after. |
+| 3 | Medium | Six Dependabot PRs serialized against a shared `Cargo.lock`, each carrying a *partial* resolution. Two regressed a transitive dep: #55 downgraded `windows-sys` 0.61.2 → 0.52.0, #59 downgraded `getrandom` 0.4.3 → 0.3.4. | Consolidated into one `cargo update`, then grouped Dependabot so it consolidates itself: one PR per ecosystem per week. |
+
+### Dependency policy (`.github/dependabot.yml`)
+
+Cargo **minor/patch** bumps batch into one PR — semver-compatible, so the group
+resolves as a single lockfile update. **Major** bumps stay individual: they break
+APIs and need per-crate review a batched PR would hide.
+
+Versions landed: `async-nats` 0.48→0.50 (manifest edit), `clap` 4.6.6,
+`thiserror` 2.0.20, `async-trait` 0.1.92, `uuid` 1.26.0, Docker base `rust` 1.98.
+
+### Known constraints
+
+- **`reqwest` is stuck at 0.12.** `opentelemetry-otlp` 0.32 requires 0.13, so the
+  graph carries both majors. Our crates cannot move to 0.13 until OTel unifies.
+- **Dependabot's cargo sweep** failed 2026-08-17 and 2026-08-24, and did not run
+  2026-08-31. Logs have expired (HTTP 410), so the cause is **unconfirmed**. A
+  forced run on 2026-08-31 succeeded and the lockfile is now fully refreshed.
+  Watch the next scheduled sweep.
+- `cargo clippy --workspace --all-targets` reports 3 pre-existing
+  `field_reassign_with_default` lints in `sre-notify` test code. CI does not pass
+  `--all-targets`, so this is not gating.
+
+### Test suite status
+
+The Docker-gated Postgres/NATS testcontainer suites **do** run given a working
+Docker daemon, superseding the "not runnable in this environment" note under
+Production-Readiness Hardening (2026-07-05). Full suite on this branch:
+**316 passed, 0 failed** (`cargo test --workspace`), with `fmt --check` and
+`clippy --workspace -D warnings` clean.
