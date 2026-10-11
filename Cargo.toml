@@ -11,6 +11,7 @@ members = [
     "crates/gates",
     "crates/intelligence",
     "crates/chatops",
+    "crates/evals",
     ".",
 ]
 

@@ -1,0 +1,31 @@
+{
+  "id": "GS-13",
+  "title": "Redis cache degrades but profile-api falls back to SQL",
+  "narrative": "The profile cache starts timing out on a third of its calls after a noisy-neighbor event on its shard. profile-api was built for this: on a cache timeout it reads from SQL instead. Users see no errors, only slower responses, with p95 rising from 80 ms to 640 ms. Nothing changed on profile-api. Restarting or scaling profile-api would not touch the cache; the cache team needs to act.",
+  "tags": ["dependency", "pair:dependency-hard-vs-soft"],
+  "alert": {
+    "rule": "Dependency failures > 20 percent",
+    "severity": "Sev3",
+    "signal_type": "Metric",
+    "resource": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-profile-prod/providers/Microsoft.App/containerApps/profile-api"
+  },
+  "telemetry": {
+    "dependency_performance": [
+      {"DependencyType": "Redis", "Target": "profile-cache.redis.cache.windows.net:6380", "CallCount": 8800, "FailureCount": 2900, "AvgDuration": 1020.0, "P95Duration": 2000.0, "FailureRate": 33.0},
+      {"DependencyType": "SQL", "Target": "profile-sql.database.example", "CallCount": 3100, "FailureCount": 1, "AvgDuration": 18.0, "P95Duration": 44.0, "FailureRate": 0.03}
+    ],
+    "latency_analysis": [
+      {"TimeGenerated": "2026-10-11T13:05:00Z", "P50": 60, "P95": 640, "P99": 1300, "FailureRate": 0.1, "TotalRequests": 6100}
+    ],
+    "trace_latency_breakdown": [
+      {"OperationName": "GET /v1/profile/{id}", "SlowTraces": 70, "AvgRequestMs": 1250.0, "AvgDependencyMs": 1100.0, "AvgDependencyShare": 88.0}
+    ]
+  },
+  "expected": {
+    "root_cause": "dependency_failure",
+    "signals": ["dependency_failure", "latency_degradation"],
+    "escalate": false,
+    "remediation": ["none"],
+    "rationale": "The cache failing a third of its calls is the cause, and the fallback keeps it from becoming an outage. The modest latency rise is the cost of the fallback. There is no safe automated action on profile-api."
+  }
+}

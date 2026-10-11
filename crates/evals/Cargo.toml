@@ -1,0 +1,33 @@
+[package]
+name = "sre-evals"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Golden-set evaluation of investigation quality (ADR-023)"
+
+[lib]
+name = "sre_evals"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sre-evals"
+path = "src/main.rs"
+
+[dependencies]
+sre-common = { path = "../common" }
+sre-azure = { path = "../azure" }
+sre-agents = { path = "../agents" }
+sre-orchestrator = { path = "../orchestrator" }
+sre-store = { path = "../store" }
+sre-intelligence = { path = "../intelligence" }
+tokio.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+reqwest.workspace = true
+wiremock.workspace = true

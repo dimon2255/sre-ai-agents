@@ -1,0 +1,211 @@
+{
+  "always_correct": 10,
+  "engine": "rule-based pipeline + Claude RCA (claude-opus-4-8), judged by claude-opus-5-5",
+  "majority_correct": 10,
+  "mixed": 0,
+  "never_correct": 4,
+  "pooled": {
+    "hits": 30,
+    "total": 42
+  },
+  "range_pct": [
+    71.42857142857143,
+    71.42857142857143
+  ],
+  "runs": [
+    {
+      "correct": {
+        "hits": 10,
+        "total": 14
+      },
+      "errors": 0,
+      "name": "claude-run-1"
+    },
+    {
+      "correct": {
+        "hits": 10,
+        "total": 14
+      },
+      "errors": 0,
+      "name": "claude-run-2"
+    },
+    {
+      "correct": {
+        "hits": 10,
+        "total": 14
+      },
+      "errors": 0,
+      "name": "claude-run-3"
+    }
+  ],
+  "scenarios": [
+    {
+      "correct": 3,
+      "graded": 3,
+      "id": "GS-01",
+      "stable": true,
+      "title": "Bad deploy throws NullReferenceException on capture",
+      "verdicts": [
+        "correct",
+        "correct",
+        "correct"
+      ]
+    },
+    {
+      "correct": 3,
+      "graded": 3,
+      "id": "GS-02",
+      "stable": true,
+      "title": "Azure SQL outage fails order reads and writes",
+      "verdicts": [
+        "correct",
+        "correct",
+        "correct"
+      ]
+    },
+    {
+      "correct": 3,
+      "graded": 3,
+      "id": "GS-03",
+      "stable": true,
+      "title": "Azure platform event takes checkout-web offline",
+      "verdicts": [
+        "correct",
+        "correct",
+        "correct"
+      ]
+    },
+    {
+      "correct": 3,
+      "graded": 3,
+      "id": "GS-04",
+      "stable": true,
+      "title": "Memory leak drives ledger-api into GC thrash and OOM",
+      "verdicts": [
+        "correct",
+        "correct",
+        "correct"
+      ]
+    },
+    {
+      "correct": 3,
+      "graded": 3,
+      "id": "GS-05",
+      "stable": true,
+      "title": "Third-party fraud scoring API slows to 3 seconds",
+      "verdicts": [
+        "correct",
+        "correct",
+        "correct"
+      ]
+    },
+    {
+      "correct": 0,
+      "graded": 3,
+      "id": "GS-06",
+      "stable": false,
+      "title": "Exception-count alert flaps on normal background noise",
+      "verdicts": [
+        "incorrect",
+        "partial",
+        "partial"
+      ]
+    },
+    {
+      "correct": 3,
+      "graded": 3,
+      "id": "GS-07",
+      "stable": true,
+      "title": "Real outage while the platform's telemetry access is revoked",
+      "verdicts": [
+        "correct",
+        "correct",
+        "correct"
+      ]
+    },
+    {
+      "correct": 3,
+      "graded": 3,
+      "id": "GS-08",
+      "stable": true,
+      "title": "Config change points session-api at a decommissioned Redis",
+      "verdicts": [
+        "correct",
+        "correct",
+        "correct"
+      ]
+    },
+    {
+      "correct": 0,
+      "graded": 3,
+      "id": "GS-09",
+      "stable": true,
+      "title": "Campaign traffic saturates catalog-api CPU",
+      "verdicts": [
+        "partial",
+        "partial",
+        "partial"
+      ]
+    },
+    {
+      "correct": 3,
+      "graded": 3,
+      "id": "GS-10",
+      "stable": true,
+      "title": "Deploy ships a slow pricing rule and latency doubles",
+      "verdicts": [
+        "correct",
+        "correct",
+        "correct"
+      ]
+    },
+    {
+      "correct": 3,
+      "graded": 3,
+      "id": "GS-11",
+      "stable": true,
+      "title": "Partner batch with European number format crashes the parser",
+      "verdicts": [
+        "correct",
+        "correct",
+        "correct"
+      ]
+    },
+    {
+      "correct": 0,
+      "graded": 3,
+      "id": "GS-12",
+      "stable": true,
+      "title": "Disposed storage client leaves documents-api stuck after a network blip",
+      "verdicts": [
+        "partial",
+        "partial",
+        "partial"
+      ]
+    },
+    {
+      "correct": 3,
+      "graded": 3,
+      "id": "GS-13",
+      "stable": true,
+      "title": "Redis cache degrades but profile-api falls back to SQL",
+      "verdicts": [
+        "correct",
+        "correct",
+        "correct"
+      ]
+    },
+    {
+      "correct": 0,
+      "graded": 3,
+      "id": "GS-14",
+      "stable": false,
+      "title": "Front Door route change blackholes checkout traffic",
+      "verdicts": [
+        "partial",
+        "incorrect",
+        "incorrect"
+      ]
+    }
+  ]
+}

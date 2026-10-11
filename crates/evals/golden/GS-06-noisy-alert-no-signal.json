@@ -1,0 +1,37 @@
+{
+  "id": "GS-06",
+  "title": "Exception-count alert flaps on normal background noise",
+  "narrative": "A log alert on notifications-api fires when more than five exceptions land in five minutes. Six arrive: four client-cancelled requests and two transient HTTP errors from mobile clients on bad networks, the normal background rate for this service. Latency, failure rate, dependencies and the platform are healthy and nothing changed. The right outcome is to recognize noise, not to name a root cause.",
+  "tags": ["noise", "pair:quiet-telemetry"],
+  "alert": {
+    "rule": "Exceptions > 5 in 5 minutes",
+    "severity": "Sev3",
+    "signal_type": "Log",
+    "resource": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-notify-prod/providers/Microsoft.App/containerApps/notifications-api"
+  },
+  "telemetry": {
+    "error_spike": [
+      {"TimeGenerated": "2026-10-11T20:02:00Z", "ExceptionType": "System.Threading.Tasks.TaskCanceledException", "ProblemId": "System.Threading.Tasks.TaskCanceledException at Notifications.Api.Push.SendAsync", "ErrorCount": 4, "DistinctErrors": 1},
+      {"TimeGenerated": "2026-10-11T20:01:00Z", "ExceptionType": "System.Net.Http.HttpRequestException", "ProblemId": "System.Net.Http.HttpRequestException at Notifications.Api.Push.SendAsync", "ErrorCount": 2, "DistinctErrors": 1}
+    ],
+    "error_details": [
+      {"TimeGenerated": "2026-10-11T20:02:10Z", "ExceptionType": "System.Threading.Tasks.TaskCanceledException", "OuterMessage": "The operation was canceled.", "InnermostMessage": "The client disconnected.", "ProblemId": "System.Threading.Tasks.TaskCanceledException at Notifications.Api.Push.SendAsync", "SeverityLevel": 2}
+    ],
+    "latency_analysis": [
+      {"TimeGenerated": "2026-10-11T20:02:00Z", "P50": 45, "P95": 180, "P99": 420, "FailureRate": 0.2, "TotalRequests": 3100}
+    ],
+    "failure_breakdown": [
+      {"OperationName": "POST /v1/notifications/send", "ResultCode": "499", "FailureCount": 6, "AvgDuration": 210.0}
+    ],
+    "dependency_performance": [
+      {"DependencyType": "HTTP", "Target": "push.provider.example", "CallCount": 3050, "FailureCount": 2, "AvgDuration": 60.0, "P95Duration": 150.0, "FailureRate": 0.07}
+    ]
+  },
+  "expected": {
+    "root_cause": "none",
+    "signals": [],
+    "escalate": false,
+    "remediation": ["none"],
+    "rationale": "Four client cancellations and two transient HTTP errors against 3,100 requests (0.2 percent) is this service's normal rate. Every other signal is healthy. Naming a root cause here would be a false alarm, and paging a human for it is alert fatigue."
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "id": "GS-03",
+  "title": "Azure platform event takes checkout-web offline",
+  "narrative": "A platform-initiated fault on the hosting environment marks checkout-web Unavailable in Azure Resource Health. The few requests that reach the front end get 503 responses. The application processes are not running, so no exceptions are logged. Nothing was deployed. The fix is a regional failover or waiting for the platform; restarting the app does nothing while the host is down.",
+  "tags": ["platform"],
+  "alert": {
+    "rule": "Availability < 90 percent",
+    "severity": "Sev0",
+    "signal_type": "Metric",
+    "resource": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-checkout-prod/providers/Microsoft.App/containerApps/checkout-web"
+  },
+  "telemetry": {
+    "resource_health": [
+      {"TimeGenerated": "2026-10-11T03:07:44Z", "CurrentHealth": "Unavailable", "PreviousHealth": "Available", "Cause": "PlatformInitiated", "Resource": "checkout-web"}
+    ],
+    "latency_analysis": [
+      {"TimeGenerated": "2026-10-11T03:15:00Z", "P50": 12, "P95": 230, "P99": 410, "FailureRate": 96.0, "TotalRequests": 48}
+    ],
+    "failure_breakdown": [
+      {"OperationName": "GET /checkout", "ResultCode": "503", "FailureCount": 46, "AvgDuration": 15.0}
+    ],
+    "trace_failure_correlation": [
+      {"RequestName": "GET /checkout", "DependencyTarget": "", "DependencyType": "", "DependencyResultCode": "", "FailedTraces": 46, "DependencyFailures": 0}
+    ]
+  },
+  "expected": {
+    "root_cause": "service_health",
+    "signals": ["service_health", "error_spike"],
+    "escalate": false,
+    "remediation": ["none"],
+    "rationale": "Resource Health records a platform-initiated transition to Unavailable; the request failures follow from it. No workload action helps while the host is down."
+  }
+}

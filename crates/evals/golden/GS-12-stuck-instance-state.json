@@ -1,0 +1,41 @@
+{
+  "id": "GS-12",
+  "title": "Disposed storage client leaves documents-api stuck after a network blip",
+  "narrative": "Forty minutes ago a brief network interruption to Blob Storage caused documents-api's singleton storage client to dispose its pooled TLS stream. The client never rebuilds it, so every document download now throws ObjectDisposedException before any call leaves the process. Storage itself recovered immediately and is healthy. Nothing was deployed. Restarting the replicas recreates the client and ends the incident.",
+  "tags": ["application", "pair:error-spike-restartable-vs-not", "pair:change-vs-no-change"],
+  "alert": {
+    "rule": "Http 5xx > 50 in 5 minutes",
+    "severity": "Sev2",
+    "signal_type": "Metric",
+    "resource": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-documents-prod/providers/Microsoft.App/containerApps/documents-api"
+  },
+  "telemetry": {
+    "error_spike": [
+      {"TimeGenerated": "2026-10-11T18:44:00Z", "ExceptionType": "System.ObjectDisposedException", "ProblemId": "System.ObjectDisposedException at Documents.Api.Storage.BlobGateway.DownloadAsync", "ErrorCount": 33, "DistinctErrors": 1},
+      {"TimeGenerated": "2026-10-11T18:43:00Z", "ExceptionType": "System.ObjectDisposedException", "ProblemId": "System.ObjectDisposedException at Documents.Api.Storage.BlobGateway.DownloadAsync", "ErrorCount": 30, "DistinctErrors": 1},
+      {"TimeGenerated": "2026-10-11T18:42:00Z", "ExceptionType": "System.ObjectDisposedException", "ProblemId": "System.ObjectDisposedException at Documents.Api.Storage.BlobGateway.DownloadAsync", "ErrorCount": 29, "DistinctErrors": 1}
+    ],
+    "error_details": [
+      {"TimeGenerated": "2026-10-11T18:44:05Z", "ExceptionType": "System.ObjectDisposedException", "OuterMessage": "Cannot access a disposed object.", "InnermostMessage": "Cannot access a disposed object. Object name: 'SslStream'.", "ProblemId": "System.ObjectDisposedException at Documents.Api.Storage.BlobGateway.DownloadAsync", "SeverityLevel": 3}
+    ],
+    "latency_analysis": [
+      {"TimeGenerated": "2026-10-11T18:44:00Z", "P50": 40, "P95": 180, "P99": 350, "FailureRate": 6.1, "TotalRequests": 1500}
+    ],
+    "failure_breakdown": [
+      {"OperationName": "GET /v1/documents/{id}", "ResultCode": "500", "FailureCount": 92, "AvgDuration": 8.0}
+    ],
+    "dependency_performance": [
+      {"DependencyType": "Azure blob", "Target": "docsprodstorage.blob.core.windows.net", "CallCount": 1400, "FailureCount": 0, "AvgDuration": 35.0, "P95Duration": 90.0, "FailureRate": 0.0}
+    ],
+    "trace_failure_correlation": [
+      {"RequestName": "GET /v1/documents/{id}", "DependencyTarget": "", "DependencyType": "", "DependencyResultCode": "", "FailedTraces": 92, "DependencyFailures": 0}
+    ]
+  },
+  "expected": {
+    "root_cause": "error_spike",
+    "signals": ["error_spike"],
+    "escalate": false,
+    "remediation": ["restart_workload"],
+    "rationale": "The failures come from bad in-process state: the exception is thrown before any storage call, storage shows zero failures, and nothing changed. This is the transient-bad-state case that a restart is meant for."
+  }
+}

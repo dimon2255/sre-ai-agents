@@ -1,0 +1,49 @@
+{
+  "id": "GS-04",
+  "title": "Memory leak drives ledger-api into GC thrash and OOM",
+  "narrative": "A cache in ledger-api that was shipped three days ago never evicts entries. Private bytes have climbed to 3.8 GB on a 4 GB container. Garbage collection now dominates CPU time, p95 latency reaches 4.2 seconds, and some requests die with OutOfMemoryException. The leaking release is outside the investigation window. Restarting the replicas clears memory for a few days; scaling out spreads the load while a fix ships.",
+  "tags": ["capacity"],
+  "alert": {
+    "rule": "Response time > 2 seconds",
+    "severity": "Sev2",
+    "signal_type": "Metric",
+    "resource": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-ledger-prod/providers/Microsoft.App/containerApps/ledger-api"
+  },
+  "telemetry": {
+    "resource_utilization": [
+      {"TimeGenerated": "2026-10-11T11:20:00Z", "Name": "Private Bytes", "AvgValue": 3620000000.0, "MaxValue": 3810000000.0},
+      {"TimeGenerated": "2026-10-11T11:20:00Z", "Name": "Available Bytes", "AvgValue": 190000000.0, "MaxValue": 240000000.0},
+      {"TimeGenerated": "2026-10-11T11:20:00Z", "Name": "% Processor Time", "AvgValue": 71.0, "MaxValue": 88.0}
+    ],
+    "latency_analysis": [
+      {"TimeGenerated": "2026-10-11T11:20:00Z", "P50": 900, "P95": 4200, "P99": 7800, "FailureRate": 2.1, "TotalRequests": 640}
+    ],
+    "error_spike": [
+      {"TimeGenerated": "2026-10-11T11:20:00Z", "ExceptionType": "System.OutOfMemoryException", "ProblemId": "System.OutOfMemoryException at Ledger.Api.Cache.EntryCache.Add", "ErrorCount": 14, "DistinctErrors": 1},
+      {"TimeGenerated": "2026-10-11T11:19:00Z", "ExceptionType": "System.OutOfMemoryException", "ProblemId": "System.OutOfMemoryException at Ledger.Api.Cache.EntryCache.Add", "ErrorCount": 12, "DistinctErrors": 1},
+      {"TimeGenerated": "2026-10-11T11:18:00Z", "ExceptionType": "System.OutOfMemoryException", "ProblemId": "System.OutOfMemoryException at Ledger.Api.Cache.EntryCache.Add", "ErrorCount": 9, "DistinctErrors": 1}
+    ],
+    "error_details": [
+      {"TimeGenerated": "2026-10-11T11:20:12Z", "ExceptionType": "System.OutOfMemoryException", "OuterMessage": "Exception of type 'System.OutOfMemoryException' was thrown.", "InnermostMessage": "Exception of type 'System.OutOfMemoryException' was thrown.", "ProblemId": "System.OutOfMemoryException at Ledger.Api.Cache.EntryCache.Add", "SeverityLevel": 3}
+    ],
+    "failure_breakdown": [
+      {"OperationName": "POST /v1/ledger/entries", "ResultCode": "500", "FailureCount": 13, "AvgDuration": 6100.0}
+    ],
+    "dependency_performance": [
+      {"DependencyType": "SQL", "Target": "ledger-sql.database.example", "CallCount": 2400, "FailureCount": 0, "AvgDuration": 22.0, "P95Duration": 61.0, "FailureRate": 0.0}
+    ],
+    "trace_failure_correlation": [
+      {"RequestName": "POST /v1/ledger/entries", "DependencyTarget": "", "DependencyType": "", "DependencyResultCode": "", "FailedTraces": 13, "DependencyFailures": 0}
+    ],
+    "trace_latency_breakdown": [
+      {"OperationName": "POST /v1/ledger/entries", "SlowTraces": 410, "AvgRequestMs": 4300.0, "AvgDependencyMs": 380.0, "AvgDependencyShare": 8.8}
+    ]
+  },
+  "expected": {
+    "root_cause": "resource_exhaustion",
+    "signals": ["resource_exhaustion", "latency_degradation", "error_spike"],
+    "escalate": false,
+    "remediation": ["restart_workload", "scale_compute"],
+    "rationale": "Memory is at 95 percent of the container limit and the slow requests spend over 90 percent of their time in-process. Latency and OOM exceptions are consequences of memory exhaustion."
+  }
+}

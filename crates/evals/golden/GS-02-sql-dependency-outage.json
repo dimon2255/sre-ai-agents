@@ -1,0 +1,48 @@
+{
+  "id": "GS-02",
+  "title": "Azure SQL outage fails order reads and writes",
+  "narrative": "The orders database stops accepting new connections after its elastic pool hits a platform fault. orders-api calls time out after 30 seconds, connection attempts fail, and both order endpoints return 500. Nothing changed on orders-api itself, and the app's own resource health stays Available. Recovery needs a database failover, which is a human decision.",
+  "tags": ["dependency", "pair:dependency-hard-vs-soft"],
+  "alert": {
+    "rule": "Http 5xx > 50 in 5 minutes",
+    "severity": "Sev1",
+    "signal_type": "Metric",
+    "resource": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-orders-prod/providers/Microsoft.App/containerApps/orders-api"
+  },
+  "telemetry": {
+    "error_spike": [
+      {"TimeGenerated": "2026-10-11T14:12:00Z", "ExceptionType": "Microsoft.Data.SqlClient.SqlException", "ProblemId": "Microsoft.Data.SqlClient.SqlException at Orders.Data.OrderRepository.GetAsync", "ErrorCount": 52, "DistinctErrors": 1},
+      {"TimeGenerated": "2026-10-11T14:11:00Z", "ExceptionType": "Microsoft.Data.SqlClient.SqlException", "ProblemId": "Microsoft.Data.SqlClient.SqlException at Orders.Data.OrderRepository.GetAsync", "ErrorCount": 47, "DistinctErrors": 1},
+      {"TimeGenerated": "2026-10-11T14:10:00Z", "ExceptionType": "Microsoft.Data.SqlClient.SqlException", "ProblemId": "Microsoft.Data.SqlClient.SqlException at Orders.Data.OrderRepository.CreateAsync", "ErrorCount": 44, "DistinctErrors": 1},
+      {"TimeGenerated": "2026-10-11T14:09:00Z", "ExceptionType": "Microsoft.Data.SqlClient.SqlException", "ProblemId": "Microsoft.Data.SqlClient.SqlException at Orders.Data.OrderRepository.CreateAsync", "ErrorCount": 39, "DistinctErrors": 1}
+    ],
+    "error_details": [
+      {"TimeGenerated": "2026-10-11T14:12:31Z", "ExceptionType": "Microsoft.Data.SqlClient.SqlException", "OuterMessage": "A network-related or instance-specific error occurred while establishing a connection to SQL Server.", "InnermostMessage": "Connection Timeout Expired. The timeout period elapsed during the post-login phase.", "ProblemId": "Microsoft.Data.SqlClient.SqlException at Orders.Data.OrderRepository.GetAsync", "SeverityLevel": 3}
+    ],
+    "latency_analysis": [
+      {"TimeGenerated": "2026-10-11T14:12:00Z", "P50": 9800, "P95": 15200, "P99": 30100, "FailureRate": 22.0, "TotalRequests": 980}
+    ],
+    "failure_breakdown": [
+      {"OperationName": "GET /v1/orders/{id}", "ResultCode": "500", "FailureCount": 140, "AvgDuration": 14900.0},
+      {"OperationName": "POST /v1/orders", "ResultCode": "500", "FailureCount": 76, "AvgDuration": 15400.0}
+    ],
+    "dependency_performance": [
+      {"DependencyType": "SQL", "Target": "orders-sql.database.example", "CallCount": 1900, "FailureCount": 1180, "AvgDuration": 14800.0, "P95Duration": 30000.0, "FailureRate": 62.1},
+      {"DependencyType": "HTTP", "Target": "inventory-api.example", "CallCount": 640, "FailureCount": 0, "AvgDuration": 45.0, "P95Duration": 90.0, "FailureRate": 0.0}
+    ],
+    "trace_failure_correlation": [
+      {"RequestName": "GET /v1/orders/{id}", "DependencyTarget": "orders-sql.database.example", "DependencyType": "SQL", "DependencyResultCode": "-2", "FailedTraces": 140, "DependencyFailures": 410},
+      {"RequestName": "POST /v1/orders", "DependencyTarget": "orders-sql.database.example", "DependencyType": "SQL", "DependencyResultCode": "-2", "FailedTraces": 76, "DependencyFailures": 228}
+    ],
+    "trace_latency_breakdown": [
+      {"OperationName": "GET /v1/orders/{id}", "SlowTraces": 300, "AvgRequestMs": 15100.0, "AvgDependencyMs": 14800.0, "AvgDependencyShare": 98.0}
+    ]
+  },
+  "expected": {
+    "root_cause": "dependency_failure",
+    "signals": ["dependency_failure", "error_spike", "latency_degradation"],
+    "escalate": false,
+    "remediation": ["none"],
+    "rationale": "The SQL dependency failing 62 percent of calls, localized by trace correlation, is the cause; the exceptions and latency are downstream effects. Restarting or scaling orders-api cannot fix the database."
+  }
+}

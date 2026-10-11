@@ -28,6 +28,57 @@ retrieval-augmented incident memory, and policy-gated remediation on top.
   Slack/Teams ChatOps interface all drive the same engine.
 - **Extensible** — third parties add agents via the lightweight `sre-agent-sdk` crate
   without depending on the platform internals.
+- **Measured, not assumed** — a golden-set evaluation scores whether investigations
+  reach the right answer, and a CI ratchet blocks quality regressions (ADR-023).
+
+---
+
+## Evaluation
+
+Unit tests show each component behaves as coded. They do not show whether an
+investigation reaches the right answer. The golden-set evaluation
+([`crates/evals`](crates/evals)) replays 14 hand-labeled incidents through the
+production orchestrator and all five agents, replacing only the Azure query
+endpoint with fixture telemetry. It scores each report against ground truth.
+
+Baseline, 2026-10-11, rule-based pipeline:
+
+| Outcome | Result |
+|---|---|
+| Report leads with the true root cause | 29% (4 of 14) |
+| True root cause found somewhere in the findings | 75% (9 of 12) |
+| Signal detection precision / recall | 92% / 88% |
+| Correct escalation decision (missed pages) | 93% (1 missed page) |
+| First remediation proposal acceptable | 50% (7 of 14) |
+| Claude root-cause analysis judged correct (LLM tier, 3 runs) | 71% (10 of 14) in every run |
+
+The platform usually finds the evidence but ranks symptoms above causes: an error
+spike from a bad deploy outranks the deploy. Claude's analysis of the same
+findings names the true cause far more often, but remediation proposals and
+paging still come from the rule-based ranking. The
+[baseline report](docs/evals/golden-set-report.md) traces every miss to a specific
+code path and proposes fixes; the [scorecard](docs/evals/scorecard.md) has
+per-scenario detail. Design and limits are in
+[ADR-023](docs/adr/023-golden-set-evaluation.md).
+
+```bash
+cargo run -p sre-evals                         # run the golden set, write the scorecard
+cargo test -p sre-evals                        # CI gate: fails if any passing check regresses
+ANTHROPIC_API_KEY=... cargo run -p sre-evals -- --engine claude   # also grade the Claude RCA with an LLM judge
+```
+
+How it scores:
+
+- **Contrastive pairs.** Most scenarios come in pairs with the same symptom and a
+  different cause: a deploy against a stuck instance, a hard dependency failure
+  against a graceful fallback, an alert on noise against a traffic blackhole.
+  Pattern-matching on symptoms cannot pass both halves.
+- **Order-independent.** Agents reply asynchronously. A tie at the top of the
+  ranking is scored as a miss rather than a coin flip, so scores are identical
+  run to run.
+- **Ratchet gate.** `baseline.json` records which checks pass per scenario. CI
+  fails if any of them regresses; improvements are locked in with
+  `--write-baseline`.
 
 ---
 
@@ -145,6 +196,7 @@ Postgres, or an LLM.
 | **`sre-gates`** | Pure-policy approval gate (ADR-009): re-derives risk and routes remediation to auto-execute, single, or dual human approval. |
 | **`sre-notify`** | Notification engine: severity-gated fan-out to Slack / Teams / PagerDuty. |
 | **`sre-chatops`** | Transport-agnostic ChatOps command parser + handler (Slack/Teams), ADR-018. |
+| **`sre-evals`** | Golden-set evaluation of investigation quality: labeled incidents, fixture KQL server, scorer, CI ratchet, optional LLM judge (ADR-023). |
 | **root crate** | CLI entrypoint (clap), webhook server (axum), gRPC API, and bootstrap wiring. |
 
 ---

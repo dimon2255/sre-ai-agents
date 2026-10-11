@@ -1,0 +1,39 @@
+{
+  "id": "GS-11",
+  "title": "Partner batch with European number format crashes the parser",
+  "narrative": "A banking partner starts sending settlement batches with amounts formatted as 1.234,56. settlement-api's ISO 20022 parser throws FormatException on every such record and the batch endpoint returns 500. The partner retries the same batches, so the failures continue. Nothing was deployed and every dependency is healthy. A restart changes nothing because the same input fails the same way; the batches must be quarantined and the parser fixed.",
+  "tags": ["application", "pair:error-spike-restartable-vs-not"],
+  "alert": {
+    "rule": "Exceptions > 50 in 5 minutes",
+    "severity": "Sev2",
+    "signal_type": "Log",
+    "resource": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-settlement-prod/providers/Microsoft.App/containerApps/settlement-api"
+  },
+  "telemetry": {
+    "error_spike": [
+      {"TimeGenerated": "2026-10-11T07:15:00Z", "ExceptionType": "System.FormatException", "ProblemId": "System.FormatException at Settlement.Parsers.Iso20022Parser.ParseAmount", "ErrorCount": 40, "DistinctErrors": 1},
+      {"TimeGenerated": "2026-10-11T07:14:00Z", "ExceptionType": "System.FormatException", "ProblemId": "System.FormatException at Settlement.Parsers.Iso20022Parser.ParseAmount", "ErrorCount": 36, "DistinctErrors": 1},
+      {"TimeGenerated": "2026-10-11T07:13:00Z", "ExceptionType": "System.FormatException", "ProblemId": "System.FormatException at Settlement.Parsers.Iso20022Parser.ParseAmount", "ErrorCount": 41, "DistinctErrors": 1},
+      {"TimeGenerated": "2026-10-11T07:12:00Z", "ExceptionType": "System.FormatException", "ProblemId": "System.FormatException at Settlement.Parsers.Iso20022Parser.ParseAmount", "ErrorCount": 38, "DistinctErrors": 1}
+    ],
+    "error_details": [
+      {"TimeGenerated": "2026-10-11T07:15:22Z", "ExceptionType": "System.FormatException", "OuterMessage": "Settlement batch B-20261011-0412 rejected: record 17 amount could not be parsed.", "InnermostMessage": "The input '1.234,56' was not in a correct format.", "ProblemId": "System.FormatException at Settlement.Parsers.Iso20022Parser.ParseAmount", "SeverityLevel": 3}
+    ],
+    "latency_analysis": [
+      {"TimeGenerated": "2026-10-11T07:15:00Z", "P50": 85, "P95": 240, "P99": 510, "FailureRate": 7.2, "TotalRequests": 2150}
+    ],
+    "failure_breakdown": [
+      {"OperationName": "POST /v1/settlements/batch", "ResultCode": "500", "FailureCount": 155, "AvgDuration": 120.0}
+    ],
+    "dependency_performance": [
+      {"DependencyType": "SQL", "Target": "settlement-sql.database.example", "CallCount": 4100, "FailureCount": 0, "AvgDuration": 14.0, "P95Duration": 38.0, "FailureRate": 0.0}
+    ]
+  },
+  "expected": {
+    "root_cause": "error_spike",
+    "signals": ["error_spike"],
+    "escalate": false,
+    "remediation": ["none"],
+    "rationale": "The exceptions are the cause: a deterministic parse failure on new partner input, with no change, dependency or capacity problem behind it. A restart is not a remediation for input that fails the same way every time."
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "id": "GS-09",
+  "title": "Campaign traffic saturates catalog-api CPU",
+  "narrative": "A marketing email goes out and catalog-api traffic jumps to five times normal. The fixed replica count was never sized for that peak. CPU sits at 97 percent, request queues build, and p95 latency reaches 2.6 seconds. Requests still succeed. Nothing changed and dependencies are healthy. Scaling out is the fix.",
+  "tags": ["capacity", "pair:latency-in-process-vs-downstream"],
+  "alert": {
+    "rule": "Response time > 2 seconds",
+    "severity": "Sev2",
+    "signal_type": "Metric",
+    "resource": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-catalog-prod/providers/Microsoft.App/containerApps/catalog-api"
+  },
+  "telemetry": {
+    "latency_analysis": [
+      {"TimeGenerated": "2026-10-11T12:30:00Z", "P50": 1400, "P95": 2600, "P99": 4100, "FailureRate": 0.0, "TotalRequests": 15800}
+    ],
+    "resource_utilization": [
+      {"TimeGenerated": "2026-10-11T12:30:00Z", "Name": "% Processor Time", "AvgValue": 96.5, "MaxValue": 99.8},
+      {"TimeGenerated": "2026-10-11T12:30:00Z", "Name": "Available Bytes", "AvgValue": 1900000000.0, "MaxValue": 2100000000.0}
+    ],
+    "dependency_performance": [
+      {"DependencyType": "HTTP", "Target": "search.example", "CallCount": 15600, "FailureCount": 2, "AvgDuration": 210.0, "P95Duration": 380.0, "FailureRate": 0.01}
+    ],
+    "trace_latency_breakdown": [
+      {"OperationName": "GET /v1/catalog/search", "SlowTraces": 9000, "AvgRequestMs": 2700.0, "AvgDependencyMs": 240.0, "AvgDependencyShare": 8.9}
+    ]
+  },
+  "expected": {
+    "root_cause": "resource_exhaustion|traffic_anomaly",
+    "signals": ["resource_exhaustion|traffic_anomaly", "latency_degradation"],
+    "escalate": false,
+    "remediation": ["scale_compute"],
+    "rationale": "CPU is saturated and the slow requests spend 91 percent of their time in-process, so the latency is a capacity problem driven by a traffic surge. Either the CPU exhaustion or the traffic surge names the cause."
+  }
+}

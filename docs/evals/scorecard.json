@@ -1,0 +1,1110 @@
+{
+  "engine": "rule-based (no LLM)",
+  "scenarios": [
+    {
+      "detected": [
+        "deployment_correlation",
+        "error_spike"
+      ],
+      "duration_ms": 6,
+      "escalated": false,
+      "expected_escalate": false,
+      "expected_remediation": [
+        "rollback_deployment"
+      ],
+      "expected_root_cause": "deployment_correlation",
+      "findings": [
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.9,
+          "severity": "CRITICAL",
+          "title": "Error spike detected on payments-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.9,
+          "severity": "CRITICAL",
+          "title": "Performance analysis for payments-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.85,
+          "severity": "HIGH",
+          "title": "Request failures for payments-api"
+        },
+        {
+          "agent": "infra-agent",
+          "category": "deployment_correlation",
+          "confidence": 0.8,
+          "severity": "MEDIUM",
+          "title": "Recent infrastructure changes to payments-api"
+        },
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.95,
+          "severity": "INFO",
+          "title": "Error details for payments-api"
+        }
+      ],
+      "first_action": {
+        "kind": "one",
+        "value": "restart_workload"
+      },
+      "id": "GS-01",
+      "predicted_root_cause": {
+        "kind": "one",
+        "value": "error_spike"
+      },
+      "proposals": [
+        {
+          "action": "restart_workload",
+          "confidence": 0.9
+        }
+      ],
+      "remediation_correct": false,
+      "root_cause_correct": false,
+      "root_cause_detected": true,
+      "signal_fn": [],
+      "signal_fp": [],
+      "signal_tp": [
+        "deployment_correlation",
+        "error_spike"
+      ],
+      "tags": [
+        "change",
+        "pair:change-vs-no-change"
+      ],
+      "title": "Bad deploy throws NullReferenceException on capture",
+      "unqueried_fixtures": [],
+      "unrecognized_queries": 0,
+      "unwarranted_action": false
+    },
+    {
+      "detected": [
+        "dependency_failure",
+        "error_spike",
+        "latency_degradation"
+      ],
+      "duration_ms": 5,
+      "escalated": false,
+      "expected_escalate": false,
+      "expected_remediation": [
+        "none"
+      ],
+      "expected_root_cause": "dependency_failure",
+      "findings": [
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.9,
+          "severity": "CRITICAL",
+          "title": "Error spike detected on orders-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.9,
+          "severity": "CRITICAL",
+          "title": "Performance analysis for orders-api"
+        },
+        {
+          "agent": "trace-agent",
+          "category": "dependency_failure",
+          "confidence": 0.85,
+          "severity": "HIGH",
+          "title": "Failed traces localized to downstream dependencies for orders-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.85,
+          "severity": "HIGH",
+          "title": "Request failures for orders-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "dependency_failure",
+          "confidence": 0.85,
+          "severity": "HIGH",
+          "title": "Dependency failures affecting orders-api"
+        },
+        {
+          "agent": "trace-agent",
+          "category": "latency_degradation",
+          "confidence": 0.8,
+          "severity": "MEDIUM",
+          "title": "Latency dominated by downstream dependencies for orders-api"
+        },
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.95,
+          "severity": "INFO",
+          "title": "Error details for orders-api"
+        }
+      ],
+      "first_action": {
+        "kind": "one",
+        "value": "restart_workload"
+      },
+      "id": "GS-02",
+      "predicted_root_cause": {
+        "kind": "one",
+        "value": "error_spike"
+      },
+      "proposals": [
+        {
+          "action": "restart_workload",
+          "confidence": 0.9
+        }
+      ],
+      "remediation_correct": false,
+      "root_cause_correct": false,
+      "root_cause_detected": true,
+      "signal_fn": [],
+      "signal_fp": [],
+      "signal_tp": [
+        "dependency_failure",
+        "error_spike",
+        "latency_degradation"
+      ],
+      "tags": [
+        "dependency",
+        "pair:dependency-hard-vs-soft"
+      ],
+      "title": "Azure SQL outage fails order reads and writes",
+      "unqueried_fixtures": [],
+      "unrecognized_queries": 0,
+      "unwarranted_action": true
+    },
+    {
+      "detected": [
+        "error_spike",
+        "service_health"
+      ],
+      "duration_ms": 4,
+      "escalated": false,
+      "expected_escalate": false,
+      "expected_remediation": [
+        "none"
+      ],
+      "expected_root_cause": "service_health",
+      "findings": [
+        {
+          "agent": "infra-agent",
+          "category": "service_health",
+          "confidence": 0.9,
+          "severity": "CRITICAL",
+          "title": "Azure Resource Health degraded for checkout-web"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.6,
+          "severity": "CRITICAL",
+          "title": "Performance analysis for checkout-web"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.85,
+          "severity": "MEDIUM",
+          "title": "Request failures for checkout-web"
+        }
+      ],
+      "first_action": {
+        "kind": "one",
+        "value": "restart_workload"
+      },
+      "id": "GS-03",
+      "predicted_root_cause": {
+        "kind": "tied",
+        "value": [
+          "error_spike",
+          "service_health"
+        ]
+      },
+      "proposals": [
+        {
+          "action": "restart_workload",
+          "confidence": 0.6
+        }
+      ],
+      "remediation_correct": false,
+      "root_cause_correct": false,
+      "root_cause_detected": true,
+      "signal_fn": [],
+      "signal_fp": [],
+      "signal_tp": [
+        "service_health",
+        "error_spike"
+      ],
+      "tags": [
+        "platform"
+      ],
+      "title": "Azure platform event takes checkout-web offline",
+      "unqueried_fixtures": [],
+      "unrecognized_queries": 0,
+      "unwarranted_action": true
+    },
+    {
+      "detected": [
+        "error_spike",
+        "latency_degradation"
+      ],
+      "duration_ms": 5,
+      "escalated": false,
+      "expected_escalate": false,
+      "expected_remediation": [
+        "restart_workload",
+        "scale_compute"
+      ],
+      "expected_root_cause": "resource_exhaustion",
+      "findings": [
+        {
+          "agent": "metrics-agent",
+          "category": "latency_degradation",
+          "confidence": 0.9,
+          "severity": "HIGH",
+          "title": "Performance analysis for ledger-api"
+        },
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.7,
+          "severity": "MEDIUM",
+          "title": "Error spike detected on ledger-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.85,
+          "severity": "MEDIUM",
+          "title": "Request failures for ledger-api"
+        },
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.95,
+          "severity": "INFO",
+          "title": "Error details for ledger-api"
+        }
+      ],
+      "first_action": {
+        "kind": "one",
+        "value": "scale_compute"
+      },
+      "id": "GS-04",
+      "predicted_root_cause": {
+        "kind": "one",
+        "value": "latency_degradation"
+      },
+      "proposals": [
+        {
+          "action": "scale_compute",
+          "confidence": 0.9
+        }
+      ],
+      "remediation_correct": true,
+      "root_cause_correct": false,
+      "root_cause_detected": false,
+      "signal_fn": [
+        "resource_exhaustion"
+      ],
+      "signal_fp": [],
+      "signal_tp": [
+        "latency_degradation",
+        "error_spike"
+      ],
+      "tags": [
+        "capacity"
+      ],
+      "title": "Memory leak drives ledger-api into GC thrash and OOM",
+      "unqueried_fixtures": [
+        "resource_utilization"
+      ],
+      "unrecognized_queries": 0,
+      "unwarranted_action": false
+    },
+    {
+      "detected": [
+        "dependency_failure",
+        "error_spike",
+        "latency_degradation"
+      ],
+      "duration_ms": 18,
+      "escalated": false,
+      "expected_escalate": false,
+      "expected_remediation": [
+        "none"
+      ],
+      "expected_root_cause": "dependency_failure",
+      "findings": [
+        {
+          "agent": "metrics-agent",
+          "category": "latency_degradation",
+          "confidence": 0.9,
+          "severity": "HIGH",
+          "title": "Performance analysis for payments-api"
+        },
+        {
+          "agent": "trace-agent",
+          "category": "dependency_failure",
+          "confidence": 0.85,
+          "severity": "MEDIUM",
+          "title": "Failed traces localized to downstream dependencies for payments-api"
+        },
+        {
+          "agent": "trace-agent",
+          "category": "latency_degradation",
+          "confidence": 0.8,
+          "severity": "MEDIUM",
+          "title": "Latency dominated by downstream dependencies for payments-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.85,
+          "severity": "MEDIUM",
+          "title": "Request failures for payments-api"
+        },
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.7,
+          "severity": "LOW",
+          "title": "Error spike detected on payments-api"
+        },
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.95,
+          "severity": "INFO",
+          "title": "Error details for payments-api"
+        }
+      ],
+      "first_action": {
+        "kind": "one",
+        "value": "scale_compute"
+      },
+      "id": "GS-05",
+      "predicted_root_cause": {
+        "kind": "one",
+        "value": "latency_degradation"
+      },
+      "proposals": [
+        {
+          "action": "scale_compute",
+          "confidence": 0.9
+        }
+      ],
+      "remediation_correct": false,
+      "root_cause_correct": false,
+      "root_cause_detected": true,
+      "signal_fn": [],
+      "signal_fp": [
+        "error_spike"
+      ],
+      "signal_tp": [
+        "dependency_failure",
+        "latency_degradation"
+      ],
+      "tags": [
+        "dependency",
+        "pair:latency-in-process-vs-downstream"
+      ],
+      "title": "Third-party fraud scoring API slows to 3 seconds",
+      "unqueried_fixtures": [],
+      "unrecognized_queries": 0,
+      "unwarranted_action": true
+    },
+    {
+      "detected": [
+        "error_spike"
+      ],
+      "duration_ms": 15,
+      "escalated": false,
+      "expected_escalate": false,
+      "expected_remediation": [
+        "none"
+      ],
+      "expected_root_cause": "none",
+      "findings": [
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.85,
+          "severity": "MEDIUM",
+          "title": "Request failures for notifications-api"
+        },
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.7,
+          "severity": "LOW",
+          "title": "Error spike detected on notifications-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "latency_degradation",
+          "confidence": 0.9,
+          "severity": "LOW",
+          "title": "Performance analysis for notifications-api"
+        },
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.95,
+          "severity": "INFO",
+          "title": "Error details for notifications-api"
+        }
+      ],
+      "first_action": {
+        "kind": "nothing"
+      },
+      "id": "GS-06",
+      "predicted_root_cause": {
+        "kind": "one",
+        "value": "error_spike"
+      },
+      "proposals": [],
+      "remediation_correct": true,
+      "root_cause_correct": false,
+      "root_cause_detected": null,
+      "signal_fn": [],
+      "signal_fp": [
+        "error_spike"
+      ],
+      "signal_tp": [],
+      "tags": [
+        "noise",
+        "pair:quiet-telemetry"
+      ],
+      "title": "Exception-count alert flaps on normal background noise",
+      "unqueried_fixtures": [],
+      "unrecognized_queries": 0,
+      "unwarranted_action": false
+    },
+    {
+      "detected": [],
+      "duration_ms": 6,
+      "escalated": true,
+      "expected_escalate": true,
+      "expected_remediation": [
+        "none"
+      ],
+      "expected_root_cause": "none",
+      "findings": [
+        {
+          "agent": "trace-agent",
+          "category": "informational",
+          "confidence": 0.0,
+          "severity": "LOW",
+          "title": "Trace query failed"
+        },
+        {
+          "agent": "logs-agent",
+          "category": "informational",
+          "confidence": 0.0,
+          "severity": "LOW",
+          "title": "Log query failed"
+        },
+        {
+          "agent": "infra-agent",
+          "category": "informational",
+          "confidence": 0.0,
+          "severity": "LOW",
+          "title": "Activity Log query failed"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "informational",
+          "confidence": 0.0,
+          "severity": "LOW",
+          "title": "Metrics query failed"
+        }
+      ],
+      "first_action": {
+        "kind": "nothing"
+      },
+      "id": "GS-07",
+      "predicted_root_cause": {
+        "kind": "nothing"
+      },
+      "proposals": [],
+      "remediation_correct": true,
+      "root_cause_correct": true,
+      "root_cause_detected": null,
+      "signal_fn": [],
+      "signal_fp": [],
+      "signal_tp": [],
+      "tags": [
+        "blind"
+      ],
+      "title": "Real outage while the platform's telemetry access is revoked",
+      "unqueried_fixtures": [],
+      "unrecognized_queries": 0,
+      "unwarranted_action": false
+    },
+    {
+      "detected": [
+        "dependency_failure",
+        "deployment_correlation",
+        "error_spike",
+        "latency_degradation"
+      ],
+      "duration_ms": 6,
+      "escalated": false,
+      "expected_escalate": false,
+      "expected_remediation": [
+        "rollback_deployment"
+      ],
+      "expected_root_cause": "config_change|deployment_correlation",
+      "findings": [
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.9,
+          "severity": "CRITICAL",
+          "title": "Error spike detected on session-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.9,
+          "severity": "CRITICAL",
+          "title": "Performance analysis for session-api"
+        },
+        {
+          "agent": "trace-agent",
+          "category": "dependency_failure",
+          "confidence": 0.85,
+          "severity": "HIGH",
+          "title": "Failed traces localized to downstream dependencies for session-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.85,
+          "severity": "HIGH",
+          "title": "Request failures for session-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "dependency_failure",
+          "confidence": 0.85,
+          "severity": "HIGH",
+          "title": "Dependency failures affecting session-api"
+        },
+        {
+          "agent": "infra-agent",
+          "category": "deployment_correlation",
+          "confidence": 0.8,
+          "severity": "MEDIUM",
+          "title": "Recent infrastructure changes to session-api"
+        },
+        {
+          "agent": "trace-agent",
+          "category": "latency_degradation",
+          "confidence": 0.8,
+          "severity": "MEDIUM",
+          "title": "Latency dominated by downstream dependencies for session-api"
+        },
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.95,
+          "severity": "INFO",
+          "title": "Error details for session-api"
+        }
+      ],
+      "first_action": {
+        "kind": "one",
+        "value": "restart_workload"
+      },
+      "id": "GS-08",
+      "predicted_root_cause": {
+        "kind": "one",
+        "value": "error_spike"
+      },
+      "proposals": [
+        {
+          "action": "restart_workload",
+          "confidence": 0.9
+        }
+      ],
+      "remediation_correct": false,
+      "root_cause_correct": false,
+      "root_cause_detected": true,
+      "signal_fn": [],
+      "signal_fp": [],
+      "signal_tp": [
+        "deployment_correlation",
+        "dependency_failure",
+        "error_spike",
+        "latency_degradation"
+      ],
+      "tags": [
+        "change",
+        "pair:change-config-vs-code"
+      ],
+      "title": "Config change points session-api at a decommissioned Redis",
+      "unqueried_fixtures": [],
+      "unrecognized_queries": 0,
+      "unwarranted_action": false
+    },
+    {
+      "detected": [
+        "latency_degradation"
+      ],
+      "duration_ms": 5,
+      "escalated": false,
+      "expected_escalate": false,
+      "expected_remediation": [
+        "scale_compute"
+      ],
+      "expected_root_cause": "resource_exhaustion|traffic_anomaly",
+      "findings": [
+        {
+          "agent": "metrics-agent",
+          "category": "latency_degradation",
+          "confidence": 0.9,
+          "severity": "HIGH",
+          "title": "Performance analysis for catalog-api"
+        }
+      ],
+      "first_action": {
+        "kind": "one",
+        "value": "scale_compute"
+      },
+      "id": "GS-09",
+      "predicted_root_cause": {
+        "kind": "one",
+        "value": "latency_degradation"
+      },
+      "proposals": [
+        {
+          "action": "scale_compute",
+          "confidence": 0.9
+        }
+      ],
+      "remediation_correct": true,
+      "root_cause_correct": false,
+      "root_cause_detected": false,
+      "signal_fn": [
+        "resource_exhaustion"
+      ],
+      "signal_fp": [],
+      "signal_tp": [
+        "latency_degradation"
+      ],
+      "tags": [
+        "capacity",
+        "pair:latency-in-process-vs-downstream"
+      ],
+      "title": "Campaign traffic saturates catalog-api CPU",
+      "unqueried_fixtures": [
+        "resource_utilization"
+      ],
+      "unrecognized_queries": 0,
+      "unwarranted_action": false
+    },
+    {
+      "detected": [
+        "deployment_correlation",
+        "latency_degradation"
+      ],
+      "duration_ms": 21,
+      "escalated": false,
+      "expected_escalate": false,
+      "expected_remediation": [
+        "rollback_deployment"
+      ],
+      "expected_root_cause": "deployment_correlation",
+      "findings": [
+        {
+          "agent": "metrics-agent",
+          "category": "latency_degradation",
+          "confidence": 0.9,
+          "severity": "HIGH",
+          "title": "Performance analysis for pricing-api"
+        },
+        {
+          "agent": "infra-agent",
+          "category": "deployment_correlation",
+          "confidence": 0.8,
+          "severity": "MEDIUM",
+          "title": "Recent infrastructure changes to pricing-api"
+        }
+      ],
+      "first_action": {
+        "kind": "one",
+        "value": "scale_compute"
+      },
+      "id": "GS-10",
+      "predicted_root_cause": {
+        "kind": "one",
+        "value": "latency_degradation"
+      },
+      "proposals": [
+        {
+          "action": "scale_compute",
+          "confidence": 0.9
+        },
+        {
+          "action": "rollback_deployment",
+          "confidence": 0.8
+        }
+      ],
+      "remediation_correct": false,
+      "root_cause_correct": false,
+      "root_cause_detected": true,
+      "signal_fn": [],
+      "signal_fp": [],
+      "signal_tp": [
+        "deployment_correlation",
+        "latency_degradation"
+      ],
+      "tags": [
+        "change",
+        "pair:change-config-vs-code"
+      ],
+      "title": "Deploy ships a slow pricing rule and latency doubles",
+      "unqueried_fixtures": [
+        "resource_utilization"
+      ],
+      "unrecognized_queries": 0,
+      "unwarranted_action": false
+    },
+    {
+      "detected": [
+        "error_spike"
+      ],
+      "duration_ms": 5,
+      "escalated": false,
+      "expected_escalate": false,
+      "expected_remediation": [
+        "none"
+      ],
+      "expected_root_cause": "error_spike",
+      "findings": [
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.9,
+          "severity": "CRITICAL",
+          "title": "Error spike detected on settlement-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.9,
+          "severity": "HIGH",
+          "title": "Performance analysis for settlement-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.85,
+          "severity": "HIGH",
+          "title": "Request failures for settlement-api"
+        },
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.95,
+          "severity": "INFO",
+          "title": "Error details for settlement-api"
+        }
+      ],
+      "first_action": {
+        "kind": "one",
+        "value": "restart_workload"
+      },
+      "id": "GS-11",
+      "predicted_root_cause": {
+        "kind": "one",
+        "value": "error_spike"
+      },
+      "proposals": [
+        {
+          "action": "restart_workload",
+          "confidence": 0.9
+        }
+      ],
+      "remediation_correct": false,
+      "root_cause_correct": true,
+      "root_cause_detected": true,
+      "signal_fn": [],
+      "signal_fp": [],
+      "signal_tp": [
+        "error_spike"
+      ],
+      "tags": [
+        "application",
+        "pair:error-spike-restartable-vs-not"
+      ],
+      "title": "Partner batch with European number format crashes the parser",
+      "unqueried_fixtures": [],
+      "unrecognized_queries": 0,
+      "unwarranted_action": true
+    },
+    {
+      "detected": [
+        "error_spike"
+      ],
+      "duration_ms": 5,
+      "escalated": false,
+      "expected_escalate": false,
+      "expected_remediation": [
+        "restart_workload"
+      ],
+      "expected_root_cause": "error_spike",
+      "findings": [
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.9,
+          "severity": "HIGH",
+          "title": "Error spike detected on documents-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.9,
+          "severity": "HIGH",
+          "title": "Performance analysis for documents-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.85,
+          "severity": "HIGH",
+          "title": "Request failures for documents-api"
+        },
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.95,
+          "severity": "INFO",
+          "title": "Error details for documents-api"
+        }
+      ],
+      "first_action": {
+        "kind": "one",
+        "value": "restart_workload"
+      },
+      "id": "GS-12",
+      "predicted_root_cause": {
+        "kind": "one",
+        "value": "error_spike"
+      },
+      "proposals": [
+        {
+          "action": "restart_workload",
+          "confidence": 0.9
+        }
+      ],
+      "remediation_correct": true,
+      "root_cause_correct": true,
+      "root_cause_detected": true,
+      "signal_fn": [],
+      "signal_fp": [],
+      "signal_tp": [
+        "error_spike"
+      ],
+      "tags": [
+        "application",
+        "pair:error-spike-restartable-vs-not",
+        "pair:change-vs-no-change"
+      ],
+      "title": "Disposed storage client leaves documents-api stuck after a network blip",
+      "unqueried_fixtures": [],
+      "unrecognized_queries": 0,
+      "unwarranted_action": false
+    },
+    {
+      "detected": [
+        "dependency_failure",
+        "latency_degradation"
+      ],
+      "duration_ms": 5,
+      "escalated": false,
+      "expected_escalate": false,
+      "expected_remediation": [
+        "none"
+      ],
+      "expected_root_cause": "dependency_failure",
+      "findings": [
+        {
+          "agent": "metrics-agent",
+          "category": "dependency_failure",
+          "confidence": 0.85,
+          "severity": "HIGH",
+          "title": "Dependency failures affecting profile-api"
+        },
+        {
+          "agent": "trace-agent",
+          "category": "latency_degradation",
+          "confidence": 0.8,
+          "severity": "MEDIUM",
+          "title": "Latency dominated by downstream dependencies for profile-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "latency_degradation",
+          "confidence": 0.9,
+          "severity": "LOW",
+          "title": "Performance analysis for profile-api"
+        }
+      ],
+      "first_action": {
+        "kind": "nothing"
+      },
+      "id": "GS-13",
+      "predicted_root_cause": {
+        "kind": "one",
+        "value": "dependency_failure"
+      },
+      "proposals": [],
+      "remediation_correct": true,
+      "root_cause_correct": true,
+      "root_cause_detected": true,
+      "signal_fn": [],
+      "signal_fp": [],
+      "signal_tp": [
+        "dependency_failure",
+        "latency_degradation"
+      ],
+      "tags": [
+        "dependency",
+        "pair:dependency-hard-vs-soft"
+      ],
+      "title": "Redis cache degrades but profile-api falls back to SQL",
+      "unqueried_fixtures": [],
+      "unrecognized_queries": 0,
+      "unwarranted_action": false
+    },
+    {
+      "detected": [],
+      "duration_ms": 15,
+      "escalated": false,
+      "expected_escalate": true,
+      "expected_remediation": [
+        "none"
+      ],
+      "expected_root_cause": "traffic_anomaly",
+      "findings": [
+        {
+          "agent": "metrics-agent",
+          "category": "latency_degradation",
+          "confidence": 0.6,
+          "severity": "LOW",
+          "title": "Performance analysis for checkout-api"
+        }
+      ],
+      "first_action": {
+        "kind": "nothing"
+      },
+      "id": "GS-14",
+      "predicted_root_cause": {
+        "kind": "nothing"
+      },
+      "proposals": [],
+      "remediation_correct": true,
+      "root_cause_correct": false,
+      "root_cause_detected": false,
+      "signal_fn": [
+        "traffic_anomaly"
+      ],
+      "signal_fp": [],
+      "signal_tp": [],
+      "tags": [
+        "traffic",
+        "pair:quiet-telemetry"
+      ],
+      "title": "Front Door route change blackholes checkout traffic",
+      "unqueried_fixtures": [],
+      "unrecognized_queries": 0,
+      "unwarranted_action": false
+    }
+  ],
+  "summary": {
+    "all_checks": {
+      "hits": 3,
+      "total": 14
+    },
+    "detection_precision": {
+      "hits": 22,
+      "total": 24
+    },
+    "detection_recall": {
+      "hits": 22,
+      "total": 25
+    },
+    "escalation": {
+      "hits": 13,
+      "total": 14
+    },
+    "mean_duration_ms": 8.642857142857142,
+    "missed_pages": 1,
+    "per_category": {
+      "dependency_failure": {
+        "fn": 0,
+        "fp": 0,
+        "tp": 4
+      },
+      "deployment_correlation": {
+        "fn": 0,
+        "fp": 0,
+        "tp": 3
+      },
+      "error_spike": {
+        "fn": 0,
+        "fp": 2,
+        "tp": 7
+      },
+      "latency_degradation": {
+        "fn": 0,
+        "fp": 0,
+        "tp": 7
+      },
+      "resource_exhaustion": {
+        "fn": 2,
+        "fp": 0,
+        "tp": 0
+      },
+      "service_health": {
+        "fn": 0,
+        "fp": 0,
+        "tp": 1
+      },
+      "traffic_anomaly": {
+        "fn": 1,
+        "fp": 0,
+        "tp": 0
+      }
+    },
+    "rca_errors": 0,
+    "remediation": {
+      "hits": 7,
+      "total": 14
+    },
+    "root_cause_ambiguous": 1,
+    "root_cause_detected": {
+      "hits": 9,
+      "total": 12
+    },
+    "root_cause_top1": {
+      "hits": 4,
+      "total": 14
+    },
+    "scenarios": 14,
+    "unnecessary_pages": 0,
+    "unwarranted_actions": 4
+  }
+}

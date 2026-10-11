@@ -1,0 +1,48 @@
+{
+  "id": "GS-08",
+  "title": "Config change points session-api at a decommissioned Redis",
+  "narrative": "An engineer updated session-api's environment configuration and pasted the connection string of a Redis cache that was decommissioned last week. On Container Apps the update creates a new revision. Every session lookup now fails to connect after a 5-second timeout and returns 500. Activating the previous revision restores the old configuration.",
+  "tags": ["change", "pair:change-config-vs-code"],
+  "alert": {
+    "rule": "Http 5xx > 50 in 5 minutes",
+    "severity": "Sev1",
+    "signal_type": "Metric",
+    "resource": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-session-prod/providers/Microsoft.App/containerApps/session-api"
+  },
+  "telemetry": {
+    "recent_deployments": [
+      {"TimeGenerated": "2026-10-11T10:05:37Z", "OperationNameValue": "MICROSOFT.APP/CONTAINERAPPS/WRITE", "ActivityStatusValue": "Success", "Caller": "ops-engineer@contoso.example", "ResourceGroup": "rg-session-prod", "Resource": "session-api"}
+    ],
+    "error_spike": [
+      {"TimeGenerated": "2026-10-11T10:09:00Z", "ExceptionType": "StackExchange.Redis.RedisConnectionException", "ProblemId": "StackExchange.Redis.RedisConnectionException at Session.Api.Store.RedisSessionStore.GetAsync", "ErrorCount": 142, "DistinctErrors": 1},
+      {"TimeGenerated": "2026-10-11T10:08:00Z", "ExceptionType": "StackExchange.Redis.RedisConnectionException", "ProblemId": "StackExchange.Redis.RedisConnectionException at Session.Api.Store.RedisSessionStore.GetAsync", "ErrorCount": 138, "DistinctErrors": 1},
+      {"TimeGenerated": "2026-10-11T10:07:00Z", "ExceptionType": "StackExchange.Redis.RedisConnectionException", "ProblemId": "StackExchange.Redis.RedisConnectionException at Session.Api.Store.RedisSessionStore.GetAsync", "ErrorCount": 130, "DistinctErrors": 1}
+    ],
+    "error_details": [
+      {"TimeGenerated": "2026-10-11T10:09:14Z", "ExceptionType": "StackExchange.Redis.RedisConnectionException", "OuterMessage": "No connection is active/available to service this operation: GET session:7f3a", "InnermostMessage": "UnableToConnect on sessions-cache-old.redis.cache.windows.net:6380", "ProblemId": "StackExchange.Redis.RedisConnectionException at Session.Api.Store.RedisSessionStore.GetAsync", "SeverityLevel": 3}
+    ],
+    "latency_analysis": [
+      {"TimeGenerated": "2026-10-11T10:09:00Z", "P50": 5010, "P95": 5400, "P99": 5600, "FailureRate": 35.0, "TotalRequests": 1400}
+    ],
+    "failure_breakdown": [
+      {"OperationName": "GET /v1/session", "ResultCode": "500", "FailureCount": 380, "AvgDuration": 5020.0},
+      {"OperationName": "POST /v1/session", "ResultCode": "500", "FailureCount": 110, "AvgDuration": 5030.0}
+    ],
+    "dependency_performance": [
+      {"DependencyType": "Redis", "Target": "sessions-cache-old.redis.cache.windows.net:6380", "CallCount": 520, "FailureCount": 520, "AvgDuration": 5000.0, "P95Duration": 5000.0, "FailureRate": 100.0}
+    ],
+    "trace_failure_correlation": [
+      {"RequestName": "GET /v1/session", "DependencyTarget": "sessions-cache-old.redis.cache.windows.net:6380", "DependencyType": "Redis", "DependencyResultCode": "UnableToConnect", "FailedTraces": 380, "DependencyFailures": 380}
+    ],
+    "trace_latency_breakdown": [
+      {"OperationName": "GET /v1/session", "SlowTraces": 400, "AvgRequestMs": 5200.0, "AvgDependencyMs": 5000.0, "AvgDependencyShare": 96.0}
+    ]
+  },
+  "expected": {
+    "root_cause": "config_change|deployment_correlation",
+    "signals": ["config_change|deployment_correlation", "dependency_failure", "error_spike", "latency_degradation"],
+    "escalate": false,
+    "remediation": ["rollback_deployment"],
+    "rationale": "The configuration write about ninety seconds before onset is the cause. The failing Redis target is the old cache named in the new configuration, so the dependency failure is a consequence, not an independent outage. On Container Apps a config change and a deploy are the same Activity Log operation, so a deployment-correlation finding is accepted as naming the change."
+  }
+}

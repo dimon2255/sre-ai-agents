@@ -1,0 +1,48 @@
+{
+  "id": "GS-01",
+  "title": "Bad deploy throws NullReferenceException on capture",
+  "narrative": "A new revision of payments-api was deployed by the CI pipeline at 09:31. The release removed a null check in the capture handler. Twelve minutes later every capture request for merchants without a stored billing address throws NullReferenceException and returns 500. Dependencies, the platform and traffic are all normal. Activating the previous revision ends the incident.",
+  "tags": ["change", "pair:change-vs-no-change"],
+  "alert": {
+    "rule": "Http 5xx > 50 in 5 minutes",
+    "severity": "Sev1",
+    "signal_type": "Metric",
+    "resource": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-payments-prod/providers/Microsoft.App/containerApps/payments-api",
+    "description": "Server errors on payments-api exceeded threshold"
+  },
+  "telemetry": {
+    "recent_deployments": [
+      {"TimeGenerated": "2026-10-11T09:31:12Z", "OperationNameValue": "MICROSOFT.APP/CONTAINERAPPS/WRITE", "ActivityStatusValue": "Success", "Caller": "ci-deployer@contoso.example", "ResourceGroup": "rg-payments-prod", "Resource": "payments-api"}
+    ],
+    "error_spike": [
+      {"TimeGenerated": "2026-10-11T09:46:00Z", "ExceptionType": "System.NullReferenceException", "ProblemId": "System.NullReferenceException at Payments.Api.Handlers.CaptureHandler.Handle", "ErrorCount": 64, "DistinctErrors": 1},
+      {"TimeGenerated": "2026-10-11T09:45:00Z", "ExceptionType": "System.NullReferenceException", "ProblemId": "System.NullReferenceException at Payments.Api.Handlers.CaptureHandler.Handle", "ErrorCount": 61, "DistinctErrors": 1},
+      {"TimeGenerated": "2026-10-11T09:44:00Z", "ExceptionType": "System.NullReferenceException", "ProblemId": "System.NullReferenceException at Payments.Api.Handlers.CaptureHandler.Handle", "ErrorCount": 58, "DistinctErrors": 1},
+      {"TimeGenerated": "2026-10-11T09:43:00Z", "ExceptionType": "System.NullReferenceException", "ProblemId": "System.NullReferenceException at Payments.Api.Handlers.CaptureHandler.Handle", "ErrorCount": 57, "DistinctErrors": 1}
+    ],
+    "error_details": [
+      {"TimeGenerated": "2026-10-11T09:46:41Z", "ExceptionType": "System.NullReferenceException", "OuterMessage": "Object reference not set to an instance of an object.", "InnermostMessage": "Object reference not set to an instance of an object.", "ProblemId": "System.NullReferenceException at Payments.Api.Handlers.CaptureHandler.Handle", "SeverityLevel": 3}
+    ],
+    "latency_analysis": [
+      {"TimeGenerated": "2026-10-11T09:46:00Z", "P50": 118, "P95": 410, "P99": 880, "FailureRate": 18.4, "TotalRequests": 1320},
+      {"TimeGenerated": "2026-10-11T09:45:00Z", "P50": 121, "P95": 398, "P99": 860, "FailureRate": 17.9, "TotalRequests": 1298}
+    ],
+    "failure_breakdown": [
+      {"OperationName": "POST /v1/payments/capture", "ResultCode": "500", "FailureCount": 231, "AvgDuration": 95.2}
+    ],
+    "dependency_performance": [
+      {"DependencyType": "SQL", "Target": "payments-sql.database.example", "CallCount": 5200, "FailureCount": 3, "AvgDuration": 12.5, "P95Duration": 40.1, "FailureRate": 0.06},
+      {"DependencyType": "HTTP", "Target": "fraud-score.example", "CallCount": 1310, "FailureCount": 0, "AvgDuration": 180.0, "P95Duration": 310.0, "FailureRate": 0.0}
+    ],
+    "trace_failure_correlation": [
+      {"RequestName": "POST /v1/payments/capture", "DependencyTarget": "", "DependencyType": "", "DependencyResultCode": "", "FailedTraces": 231, "DependencyFailures": 0}
+    ]
+  },
+  "expected": {
+    "root_cause": "deployment_correlation",
+    "signals": ["deployment_correlation", "error_spike"],
+    "escalate": false,
+    "remediation": ["rollback_deployment"],
+    "rationale": "The exceptions are the symptom; the deploy twelve minutes before onset is the cause. A restart re-runs the same broken code, so only a rollback mitigates."
+  }
+}

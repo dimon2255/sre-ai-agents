@@ -1,0 +1,1212 @@
+{
+  "engine": "rule-based pipeline + Claude RCA (claude-opus-4-8), judged by claude-opus-5-5",
+  "scenarios": [
+    {
+      "detected": [
+        "deployment_correlation",
+        "error_spike"
+      ],
+      "duration_ms": 9,
+      "escalated": false,
+      "expected_escalate": false,
+      "expected_remediation": [
+        "rollback_deployment"
+      ],
+      "expected_root_cause": "deployment_correlation",
+      "findings": [
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.9,
+          "severity": "CRITICAL",
+          "title": "Error spike detected on payments-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.9,
+          "severity": "CRITICAL",
+          "title": "Performance analysis for payments-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.85,
+          "severity": "HIGH",
+          "title": "Request failures for payments-api"
+        },
+        {
+          "agent": "infra-agent",
+          "category": "deployment_correlation",
+          "confidence": 0.8,
+          "severity": "MEDIUM",
+          "title": "Recent infrastructure changes to payments-api"
+        },
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.95,
+          "severity": "INFO",
+          "title": "Error details for payments-api"
+        }
+      ],
+      "first_action": {
+        "kind": "one",
+        "value": "restart_workload"
+      },
+      "id": "GS-01",
+      "predicted_root_cause": {
+        "kind": "one",
+        "value": "error_spike"
+      },
+      "proposals": [
+        {
+          "action": "restart_workload",
+          "confidence": 0.9
+        }
+      ],
+      "rca": {
+        "correct": true,
+        "engine": "claude",
+        "judge_reason": "The analysis names the 09:31 CI deployment of payments-api as the root cause. It says that deploy introduced a code regression causing NullReferenceException on the capture endpoint. It treats the exceptions as the symptom and recommends rollback, which matches the ground truth.",
+        "root_cause": "A recent deployment to payments-api (MICROSOFT.APP/CONTAINERAPPS/WRITE at 2026-10-11T09:31:12Z by ci-deployer@contoso.example) introduced a code regression that triggers a System.NullReferenceException on the POST /v1/payments/capture endpoint, causing 500 responses and an elevated failure rate.",
+        "verdict": "correct"
+      },
+      "remediation_correct": false,
+      "root_cause_correct": false,
+      "root_cause_detected": true,
+      "signal_fn": [],
+      "signal_fp": [],
+      "signal_tp": [
+        "deployment_correlation",
+        "error_spike"
+      ],
+      "tags": [
+        "change",
+        "pair:change-vs-no-change"
+      ],
+      "title": "Bad deploy throws NullReferenceException on capture",
+      "unqueried_fixtures": [],
+      "unrecognized_queries": 0,
+      "unwarranted_action": false
+    },
+    {
+      "detected": [
+        "dependency_failure",
+        "error_spike",
+        "latency_degradation"
+      ],
+      "duration_ms": 5,
+      "escalated": false,
+      "expected_escalate": false,
+      "expected_remediation": [
+        "none"
+      ],
+      "expected_root_cause": "dependency_failure",
+      "findings": [
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.9,
+          "severity": "CRITICAL",
+          "title": "Error spike detected on orders-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.9,
+          "severity": "CRITICAL",
+          "title": "Performance analysis for orders-api"
+        },
+        {
+          "agent": "trace-agent",
+          "category": "dependency_failure",
+          "confidence": 0.85,
+          "severity": "HIGH",
+          "title": "Failed traces localized to downstream dependencies for orders-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.85,
+          "severity": "HIGH",
+          "title": "Request failures for orders-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "dependency_failure",
+          "confidence": 0.85,
+          "severity": "HIGH",
+          "title": "Dependency failures affecting orders-api"
+        },
+        {
+          "agent": "trace-agent",
+          "category": "latency_degradation",
+          "confidence": 0.8,
+          "severity": "MEDIUM",
+          "title": "Latency dominated by downstream dependencies for orders-api"
+        },
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.95,
+          "severity": "INFO",
+          "title": "Error details for orders-api"
+        }
+      ],
+      "first_action": {
+        "kind": "one",
+        "value": "restart_workload"
+      },
+      "id": "GS-02",
+      "predicted_root_cause": {
+        "kind": "one",
+        "value": "error_spike"
+      },
+      "proposals": [
+        {
+          "action": "restart_workload",
+          "confidence": 0.9
+        }
+      ],
+      "rca": {
+        "correct": true,
+        "engine": "claude",
+        "judge_reason": "The analysis identifies the downstream orders Azure SQL database as the failing dependency. It cites the 62% failure rate and trace-correlated localization, and it treats the exceptions and latency as downstream effects. It speculates about overload or throttling rather than a platform fault on the elastic pool, but the component and the cause category (dependency failure, not orders-api) match the ground truth.",
+        "root_cause": "The orders-api is failing because its downstream Azure SQL database (orders-sql.database.example) is unreachable or saturated, producing SQL connection timeouts (SqlException code -2, 'Connection Timeout Expired...during the post-login phase'). This dependency failure cascades into HTTP 500 responses and severe latency on the service's primary endpoints.",
+        "verdict": "correct"
+      },
+      "remediation_correct": false,
+      "root_cause_correct": false,
+      "root_cause_detected": true,
+      "signal_fn": [],
+      "signal_fp": [],
+      "signal_tp": [
+        "dependency_failure",
+        "error_spike",
+        "latency_degradation"
+      ],
+      "tags": [
+        "dependency",
+        "pair:dependency-hard-vs-soft"
+      ],
+      "title": "Azure SQL outage fails order reads and writes",
+      "unqueried_fixtures": [],
+      "unrecognized_queries": 0,
+      "unwarranted_action": true
+    },
+    {
+      "detected": [
+        "error_spike",
+        "service_health"
+      ],
+      "duration_ms": 6,
+      "escalated": false,
+      "expected_escalate": false,
+      "expected_remediation": [
+        "none"
+      ],
+      "expected_root_cause": "service_health",
+      "findings": [
+        {
+          "agent": "infra-agent",
+          "category": "service_health",
+          "confidence": 0.9,
+          "severity": "CRITICAL",
+          "title": "Azure Resource Health degraded for checkout-web"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.6,
+          "severity": "CRITICAL",
+          "title": "Performance analysis for checkout-web"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.85,
+          "severity": "MEDIUM",
+          "title": "Request failures for checkout-web"
+        }
+      ],
+      "first_action": {
+        "kind": "one",
+        "value": "restart_workload"
+      },
+      "id": "GS-03",
+      "predicted_root_cause": {
+        "kind": "tied",
+        "value": [
+          "error_spike",
+          "service_health"
+        ]
+      },
+      "proposals": [
+        {
+          "action": "restart_workload",
+          "confidence": 0.6
+        }
+      ],
+      "rca": {
+        "correct": true,
+        "engine": "claude",
+        "judge_reason": "The analysis names the platform-initiated Resource Health transition to Unavailable as the root cause and treats the 503s as following from it. This matches the ground truth's service_health cause.",
+        "root_cause": "A platform-initiated availability event made the checkout-web Container App unavailable. At 2026-10-11T03:07:44Z the resource transitioned from Available to Unavailable (cause: PlatformInitiated), which coincides with a 96% request failure rate and all failures surfacing as HTTP 503 on GET /checkout, indicating the service could not serve traffic due to the underlying platform disruption rather than an application-level defect.",
+        "verdict": "correct"
+      },
+      "remediation_correct": false,
+      "root_cause_correct": false,
+      "root_cause_detected": true,
+      "signal_fn": [],
+      "signal_fp": [],
+      "signal_tp": [
+        "service_health",
+        "error_spike"
+      ],
+      "tags": [
+        "platform"
+      ],
+      "title": "Azure platform event takes checkout-web offline",
+      "unqueried_fixtures": [],
+      "unrecognized_queries": 0,
+      "unwarranted_action": true
+    },
+    {
+      "detected": [
+        "error_spike",
+        "latency_degradation"
+      ],
+      "duration_ms": 7,
+      "escalated": false,
+      "expected_escalate": false,
+      "expected_remediation": [
+        "restart_workload",
+        "scale_compute"
+      ],
+      "expected_root_cause": "resource_exhaustion",
+      "findings": [
+        {
+          "agent": "metrics-agent",
+          "category": "latency_degradation",
+          "confidence": 0.9,
+          "severity": "HIGH",
+          "title": "Performance analysis for ledger-api"
+        },
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.7,
+          "severity": "MEDIUM",
+          "title": "Error spike detected on ledger-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.85,
+          "severity": "MEDIUM",
+          "title": "Request failures for ledger-api"
+        },
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.95,
+          "severity": "INFO",
+          "title": "Error details for ledger-api"
+        }
+      ],
+      "first_action": {
+        "kind": "one",
+        "value": "scale_compute"
+      },
+      "id": "GS-04",
+      "predicted_root_cause": {
+        "kind": "one",
+        "value": "latency_degradation"
+      },
+      "proposals": [
+        {
+          "action": "scale_compute",
+          "confidence": 0.9
+        }
+      ],
+      "rca": {
+        "correct": true,
+        "engine": "claude",
+        "judge_reason": "The analysis identifies memory exhaustion in ledger-api as the root cause, with GC stalls driving the latency and OOM exceptions. That matches the resource_exhaustion ground truth. It does not pin down the specific non-evicting cache, but it names a potential leak and recommends scaling out and a deployment review.",
+        "root_cause": "The ledger-api container app is experiencing memory exhaustion, with System.OutOfMemoryException being thrown repeatedly. This memory pressure is driving severe latency degradation (P95 4200ms, P99 7800ms) and HTTP 500 failures on POST /v1/ledger/entries, as the runtime stalls on garbage collection and fails to allocate memory under load.",
+        "verdict": "correct"
+      },
+      "remediation_correct": true,
+      "root_cause_correct": false,
+      "root_cause_detected": false,
+      "signal_fn": [
+        "resource_exhaustion"
+      ],
+      "signal_fp": [],
+      "signal_tp": [
+        "latency_degradation",
+        "error_spike"
+      ],
+      "tags": [
+        "capacity"
+      ],
+      "title": "Memory leak drives ledger-api into GC thrash and OOM",
+      "unqueried_fixtures": [
+        "resource_utilization"
+      ],
+      "unrecognized_queries": 0,
+      "unwarranted_action": false
+    },
+    {
+      "detected": [
+        "dependency_failure",
+        "error_spike",
+        "latency_degradation"
+      ],
+      "duration_ms": 8,
+      "escalated": false,
+      "expected_escalate": false,
+      "expected_remediation": [
+        "none"
+      ],
+      "expected_root_cause": "dependency_failure",
+      "findings": [
+        {
+          "agent": "metrics-agent",
+          "category": "latency_degradation",
+          "confidence": 0.9,
+          "severity": "HIGH",
+          "title": "Performance analysis for payments-api"
+        },
+        {
+          "agent": "trace-agent",
+          "category": "dependency_failure",
+          "confidence": 0.85,
+          "severity": "MEDIUM",
+          "title": "Failed traces localized to downstream dependencies for payments-api"
+        },
+        {
+          "agent": "trace-agent",
+          "category": "latency_degradation",
+          "confidence": 0.8,
+          "severity": "MEDIUM",
+          "title": "Latency dominated by downstream dependencies for payments-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.85,
+          "severity": "MEDIUM",
+          "title": "Request failures for payments-api"
+        },
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.7,
+          "severity": "LOW",
+          "title": "Error spike detected on payments-api"
+        },
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.95,
+          "severity": "INFO",
+          "title": "Error details for payments-api"
+        }
+      ],
+      "first_action": {
+        "kind": "one",
+        "value": "scale_compute"
+      },
+      "id": "GS-05",
+      "predicted_root_cause": {
+        "kind": "one",
+        "value": "latency_degradation"
+      },
+      "proposals": [
+        {
+          "action": "scale_compute",
+          "confidence": 0.9
+        }
+      ],
+      "rca": {
+        "correct": true,
+        "engine": "claude",
+        "judge_reason": "The analysis identifies the degraded fraud-scoring partner as the root cause, citing 88% of request time spent in that call. This matches the ground truth's dependency failure. It does not recommend scaling payments-api, and it treats the 8 timeouts as a consequence of the slow dependency rather than an error spike.",
+        "root_cause": "The payments-api latency degradation and request failures are driven by the downstream dependency fraud-score.partner.example. Calls from POST /v1/payments/authorize to this partner fraud-scoring service are slow and timing out, accounting for 88% of end-to-end latency (3650ms avg) and producing 504 gateway timeouts and TaskCanceledException/Canceled traces on the calling side.",
+        "verdict": "correct"
+      },
+      "remediation_correct": false,
+      "root_cause_correct": false,
+      "root_cause_detected": true,
+      "signal_fn": [],
+      "signal_fp": [
+        "error_spike"
+      ],
+      "signal_tp": [
+        "dependency_failure",
+        "latency_degradation"
+      ],
+      "tags": [
+        "dependency",
+        "pair:latency-in-process-vs-downstream"
+      ],
+      "title": "Third-party fraud scoring API slows to 3 seconds",
+      "unqueried_fixtures": [],
+      "unrecognized_queries": 0,
+      "unwarranted_action": true
+    },
+    {
+      "detected": [
+        "error_spike"
+      ],
+      "duration_ms": 5,
+      "escalated": false,
+      "expected_escalate": false,
+      "expected_remediation": [
+        "none"
+      ],
+      "expected_root_cause": "none",
+      "findings": [
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.85,
+          "severity": "MEDIUM",
+          "title": "Request failures for notifications-api"
+        },
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.7,
+          "severity": "LOW",
+          "title": "Error spike detected on notifications-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "latency_degradation",
+          "confidence": 0.9,
+          "severity": "LOW",
+          "title": "Performance analysis for notifications-api"
+        },
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.95,
+          "severity": "INFO",
+          "title": "Error details for notifications-api"
+        }
+      ],
+      "first_action": {
+        "kind": "nothing"
+      },
+      "id": "GS-06",
+      "predicted_root_cause": {
+        "kind": "one",
+        "value": "error_spike"
+      },
+      "proposals": [],
+      "rca": {
+        "correct": false,
+        "engine": "claude",
+        "judge_reason": "The analysis rightly finds the service healthy, calls the client disconnects benign, and suggests tuning the alert to cut noise. It still frames caller-side cancellation as the root cause and speculates about aggressive client timeouts and downstream latency, recommending follow-up. It never says these errors match the service's normal background rate or that no actionable cause exists. It mixes recognizing noise with asserting a cause.",
+        "root_cause": "The 6 observed failures on POST /v1/notifications/send are HTTP 499 responses caused by clients disconnecting before the server completed the request, confirmed by the 'The client disconnected.' exception messages and the TaskCanceledException/HttpRequestException types. These are client-side cancellations rather than a server-side fault; the service itself remains healthy.",
+        "verdict": "partial"
+      },
+      "remediation_correct": true,
+      "root_cause_correct": false,
+      "root_cause_detected": null,
+      "signal_fn": [],
+      "signal_fp": [
+        "error_spike"
+      ],
+      "signal_tp": [],
+      "tags": [
+        "noise",
+        "pair:quiet-telemetry"
+      ],
+      "title": "Exception-count alert flaps on normal background noise",
+      "unqueried_fixtures": [],
+      "unrecognized_queries": 0,
+      "unwarranted_action": false
+    },
+    {
+      "detected": [],
+      "duration_ms": 5,
+      "escalated": true,
+      "expected_escalate": true,
+      "expected_remediation": [
+        "none"
+      ],
+      "expected_root_cause": "none",
+      "findings": [
+        {
+          "agent": "trace-agent",
+          "category": "informational",
+          "confidence": 0.0,
+          "severity": "LOW",
+          "title": "Trace query failed"
+        },
+        {
+          "agent": "infra-agent",
+          "category": "informational",
+          "confidence": 0.0,
+          "severity": "LOW",
+          "title": "Activity Log query failed"
+        },
+        {
+          "agent": "logs-agent",
+          "category": "informational",
+          "confidence": 0.0,
+          "severity": "LOW",
+          "title": "Log query failed"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "informational",
+          "confidence": 0.0,
+          "severity": "LOW",
+          "title": "Metrics query failed"
+        }
+      ],
+      "first_action": {
+        "kind": "nothing"
+      },
+      "id": "GS-07",
+      "predicted_root_cause": {
+        "kind": "nothing"
+      },
+      "proposals": [],
+      "rca": {
+        "correct": true,
+        "engine": "claude",
+        "judge_reason": "The analysis states plainly that no telemetry could be retrieved because every query returned 403, sets confidence at 0.0, and leaves the identity-api root cause undetermined. It does not invent a cause for the server errors. The RBAC finding concerns the investigation's own access, which matches the ground truth, and is not presented as the cause of the incident. This fits the 'evidence is insufficient' criterion for a no-root-cause incident.",
+        "root_cause": "The investigation itself was blocked by insufficient RBAC permissions on the identity used by the automated agents. All four data-source queries (traces, metrics, error logs, and Activity Log) failed with HTTP 403 InsufficientAccessError against App Insights 'golden-app-insights' and Log Analytics workspace 'golden-workspace'. No actual telemetry about the identity-api container app could be retrieved, so the alert's true technical root cause remains undetermined pending access remediation.",
+        "verdict": "correct"
+      },
+      "remediation_correct": true,
+      "root_cause_correct": true,
+      "root_cause_detected": null,
+      "signal_fn": [],
+      "signal_fp": [],
+      "signal_tp": [],
+      "tags": [
+        "blind"
+      ],
+      "title": "Real outage while the platform's telemetry access is revoked",
+      "unqueried_fixtures": [],
+      "unrecognized_queries": 0,
+      "unwarranted_action": false
+    },
+    {
+      "detected": [
+        "dependency_failure",
+        "deployment_correlation",
+        "error_spike",
+        "latency_degradation"
+      ],
+      "duration_ms": 6,
+      "escalated": false,
+      "expected_escalate": false,
+      "expected_remediation": [
+        "rollback_deployment"
+      ],
+      "expected_root_cause": "config_change|deployment_correlation",
+      "findings": [
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.9,
+          "severity": "CRITICAL",
+          "title": "Error spike detected on session-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.9,
+          "severity": "CRITICAL",
+          "title": "Performance analysis for session-api"
+        },
+        {
+          "agent": "trace-agent",
+          "category": "dependency_failure",
+          "confidence": 0.85,
+          "severity": "HIGH",
+          "title": "Failed traces localized to downstream dependencies for session-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.85,
+          "severity": "HIGH",
+          "title": "Request failures for session-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "dependency_failure",
+          "confidence": 0.85,
+          "severity": "HIGH",
+          "title": "Dependency failures affecting session-api"
+        },
+        {
+          "agent": "trace-agent",
+          "category": "latency_degradation",
+          "confidence": 0.8,
+          "severity": "MEDIUM",
+          "title": "Latency dominated by downstream dependencies for session-api"
+        },
+        {
+          "agent": "infra-agent",
+          "category": "deployment_correlation",
+          "confidence": 0.8,
+          "severity": "MEDIUM",
+          "title": "Recent infrastructure changes to session-api"
+        },
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.95,
+          "severity": "INFO",
+          "title": "Error details for session-api"
+        }
+      ],
+      "first_action": {
+        "kind": "one",
+        "value": "restart_workload"
+      },
+      "id": "GS-08",
+      "predicted_root_cause": {
+        "kind": "one",
+        "value": "error_spike"
+      },
+      "proposals": [
+        {
+          "action": "restart_workload",
+          "confidence": 0.9
+        }
+      ],
+      "rca": {
+        "correct": true,
+        "engine": "claude",
+        "judge_reason": "The analysis names the container app configuration write as the root cause, stating it pointed session-api at the decommissioned Redis cache. That matches the ground truth's config_change cause, with the Redis failures correctly treated as a consequence. It also recommends rolling back the change.",
+        "root_cause": "A container app configuration change to session-api (MICROSOFT.APP/CONTAINERAPPS/WRITE at 2026-10-11T10:05:37Z) left the service pointing at a decommissioned/unreachable Redis cache endpoint (sessions-cache-old.redis.cache.windows.net:6380), which now fails 100% of connection attempts with StackExchange.Redis.RedisConnectionException (UnableToConnect), driving the request failures and latency on session-api.",
+        "verdict": "correct"
+      },
+      "remediation_correct": false,
+      "root_cause_correct": false,
+      "root_cause_detected": true,
+      "signal_fn": [],
+      "signal_fp": [],
+      "signal_tp": [
+        "deployment_correlation",
+        "dependency_failure",
+        "error_spike",
+        "latency_degradation"
+      ],
+      "tags": [
+        "change",
+        "pair:change-config-vs-code"
+      ],
+      "title": "Config change points session-api at a decommissioned Redis",
+      "unqueried_fixtures": [],
+      "unrecognized_queries": 0,
+      "unwarranted_action": false
+    },
+    {
+      "detected": [
+        "latency_degradation"
+      ],
+      "duration_ms": 6,
+      "escalated": false,
+      "expected_escalate": false,
+      "expected_remediation": [
+        "scale_compute"
+      ],
+      "expected_root_cause": "resource_exhaustion|traffic_anomaly",
+      "findings": [
+        {
+          "agent": "metrics-agent",
+          "category": "latency_degradation",
+          "confidence": 0.9,
+          "severity": "HIGH",
+          "title": "Performance analysis for catalog-api"
+        }
+      ],
+      "first_action": {
+        "kind": "one",
+        "value": "scale_compute"
+      },
+      "id": "GS-09",
+      "predicted_root_cause": {
+        "kind": "one",
+        "value": "latency_degradation"
+      },
+      "proposals": [
+        {
+          "action": "scale_compute",
+          "confidence": 0.9
+        }
+      ],
+      "rca": {
+        "correct": false,
+        "engine": "claude",
+        "judge_reason": "The analysis hedges between two causes, downstream dependency slowness and resource saturation under load, and never commits to either. It says outright that the bottleneck is unverified. The ground truth is CPU saturation from a traffic surge with healthy dependencies. The true cause appears only as one option among several, and high volume is listed merely as a possible contributing factor.",
+        "root_cause": "The catalog-api container app is experiencing significant latency degradation, with P95 latency at 2600ms and P99 at 4100ms while serving a high request volume (~15800 requests/minute) at a 0% failure rate. The combination of elevated latency with no errors and sustained high throughput most likely indicates a performance bottleneck — either a downstream dependency slowdown or resource saturation (CPU/memory) under current load — rather than application faults.",
+        "verdict": "partial"
+      },
+      "remediation_correct": true,
+      "root_cause_correct": false,
+      "root_cause_detected": false,
+      "signal_fn": [
+        "resource_exhaustion"
+      ],
+      "signal_fp": [],
+      "signal_tp": [
+        "latency_degradation"
+      ],
+      "tags": [
+        "capacity",
+        "pair:latency-in-process-vs-downstream"
+      ],
+      "title": "Campaign traffic saturates catalog-api CPU",
+      "unqueried_fixtures": [
+        "resource_utilization"
+      ],
+      "unrecognized_queries": 0,
+      "unwarranted_action": false
+    },
+    {
+      "detected": [
+        "deployment_correlation",
+        "latency_degradation"
+      ],
+      "duration_ms": 5,
+      "escalated": false,
+      "expected_escalate": false,
+      "expected_remediation": [
+        "rollback_deployment"
+      ],
+      "expected_root_cause": "deployment_correlation",
+      "findings": [
+        {
+          "agent": "metrics-agent",
+          "category": "latency_degradation",
+          "confidence": 0.9,
+          "severity": "HIGH",
+          "title": "Performance analysis for pricing-api"
+        },
+        {
+          "agent": "infra-agent",
+          "category": "deployment_correlation",
+          "confidence": 0.8,
+          "severity": "MEDIUM",
+          "title": "Recent infrastructure changes to pricing-api"
+        }
+      ],
+      "first_action": {
+        "kind": "one",
+        "value": "scale_compute"
+      },
+      "id": "GS-10",
+      "predicted_root_cause": {
+        "kind": "one",
+        "value": "latency_degradation"
+      },
+      "proposals": [
+        {
+          "action": "scale_compute",
+          "confidence": 0.9
+        },
+        {
+          "action": "rollback_deployment",
+          "confidence": 0.8
+        }
+      ],
+      "rca": {
+        "correct": true,
+        "engine": "claude",
+        "judge_reason": "The analysis names the pricing-api deployment as the root cause of a performance regression, which matches the ground truth's deployment-correlation cause, and it recommends rollback. It mentions downstream dependency latency or under-provisioning as unconfirmed possibilities, but it clearly chooses the deploy as the primary cause.",
+        "root_cause": "A container app deployment to pricing-api (MICROSOFT.APP/CONTAINERAPPS/WRITE at 2026-10-11T15:02:09Z by ci-deployer@contoso.example) introduced a performance regression, driving P95 latency to 2450ms and P99 to 3900ms with no corresponding increase in failure rate (0.0%).",
+        "verdict": "correct"
+      },
+      "remediation_correct": false,
+      "root_cause_correct": false,
+      "root_cause_detected": true,
+      "signal_fn": [],
+      "signal_fp": [],
+      "signal_tp": [
+        "deployment_correlation",
+        "latency_degradation"
+      ],
+      "tags": [
+        "change",
+        "pair:change-config-vs-code"
+      ],
+      "title": "Deploy ships a slow pricing rule and latency doubles",
+      "unqueried_fixtures": [
+        "resource_utilization"
+      ],
+      "unrecognized_queries": 0,
+      "unwarranted_action": false
+    },
+    {
+      "detected": [
+        "error_spike"
+      ],
+      "duration_ms": 4,
+      "escalated": false,
+      "expected_escalate": false,
+      "expected_remediation": [
+        "none"
+      ],
+      "expected_root_cause": "error_spike",
+      "findings": [
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.9,
+          "severity": "CRITICAL",
+          "title": "Error spike detected on settlement-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.9,
+          "severity": "HIGH",
+          "title": "Performance analysis for settlement-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.85,
+          "severity": "HIGH",
+          "title": "Request failures for settlement-api"
+        },
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.95,
+          "severity": "INFO",
+          "title": "Error details for settlement-api"
+        }
+      ],
+      "first_action": {
+        "kind": "one",
+        "value": "restart_workload"
+      },
+      "id": "GS-11",
+      "predicted_root_cause": {
+        "kind": "one",
+        "value": "error_spike"
+      },
+      "proposals": [
+        {
+          "action": "restart_workload",
+          "confidence": 0.9
+        }
+      ],
+      "rca": {
+        "correct": true,
+        "engine": "claude",
+        "judge_reason": "The analysis names the true root cause: the parser throws a deterministic FormatException on European-formatted amounts like '1.234,56', and the batch endpoint returns 500. Its fix, culture-explicit parsing plus input validation, matches the ground truth. It does mention a recent deployment as a possibility to verify, but only as one of two explanations alongside a new upstream client sending these values, and it does not assert a deployment as the cause.",
+        "root_cause": "The settlement-api is throwing System.FormatException when parsing numeric input formatted with European conventions (e.g. '1.234,56' uses '.' as thousands separator and ',' as decimal separator). The parsing logic is using culture-insensitive or wrong-culture number parsing, causing all POST /v1/settlements/batch requests carrying such values to fail with HTTP 500.",
+        "verdict": "correct"
+      },
+      "remediation_correct": false,
+      "root_cause_correct": true,
+      "root_cause_detected": true,
+      "signal_fn": [],
+      "signal_fp": [],
+      "signal_tp": [
+        "error_spike"
+      ],
+      "tags": [
+        "application",
+        "pair:error-spike-restartable-vs-not"
+      ],
+      "title": "Partner batch with European number format crashes the parser",
+      "unqueried_fixtures": [],
+      "unrecognized_queries": 0,
+      "unwarranted_action": true
+    },
+    {
+      "detected": [
+        "error_spike"
+      ],
+      "duration_ms": 6,
+      "escalated": false,
+      "expected_escalate": false,
+      "expected_remediation": [
+        "restart_workload"
+      ],
+      "expected_root_cause": "error_spike",
+      "findings": [
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.9,
+          "severity": "HIGH",
+          "title": "Error spike detected on documents-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.9,
+          "severity": "HIGH",
+          "title": "Performance analysis for documents-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "error_spike",
+          "confidence": 0.85,
+          "severity": "HIGH",
+          "title": "Request failures for documents-api"
+        },
+        {
+          "agent": "logs-agent",
+          "category": "error_spike",
+          "confidence": 0.95,
+          "severity": "INFO",
+          "title": "Error details for documents-api"
+        }
+      ],
+      "first_action": {
+        "kind": "one",
+        "value": "restart_workload"
+      },
+      "id": "GS-12",
+      "predicted_root_cause": {
+        "kind": "one",
+        "value": "error_spike"
+      },
+      "proposals": [
+        {
+          "action": "restart_workload",
+          "confidence": 0.9
+        }
+      ],
+      "rca": {
+        "correct": false,
+        "engine": "claude",
+        "judge_reason": "The analysis correctly identifies the mechanism: a disposed SslStream in the outbound client, possibly to blob storage. But it frames this as a deterministic code defect probably introduced by a deployment, and recommends correlating with the latest deploy and auditing code. The ground truth is transient bad in-process state after a network blip, with nothing deployed, and a restart fixes it. The analysis misses the trigger and the transient nature, so it is only partially right.",
+        "root_cause": "The documents-api is throwing System.ObjectDisposedException ('Cannot access a disposed object. Object name: SslStream') on the GET /v1/documents/{id} endpoint, causing 92 HTTP 500 failures. This strongly indicates an application-level connection/resource lifecycle bug — most likely an HttpClient or SSL/TLS stream being disposed while still in use (e.g., short-lived or disposed HttpClient instances, or an outbound connection to a downstream dependency being torn down before the response completes).",
+        "verdict": "partial"
+      },
+      "remediation_correct": true,
+      "root_cause_correct": true,
+      "root_cause_detected": true,
+      "signal_fn": [],
+      "signal_fp": [],
+      "signal_tp": [
+        "error_spike"
+      ],
+      "tags": [
+        "application",
+        "pair:error-spike-restartable-vs-not",
+        "pair:change-vs-no-change"
+      ],
+      "title": "Disposed storage client leaves documents-api stuck after a network blip",
+      "unqueried_fixtures": [],
+      "unrecognized_queries": 0,
+      "unwarranted_action": false
+    },
+    {
+      "detected": [
+        "dependency_failure",
+        "latency_degradation"
+      ],
+      "duration_ms": 6,
+      "escalated": false,
+      "expected_escalate": false,
+      "expected_remediation": [
+        "none"
+      ],
+      "expected_root_cause": "dependency_failure",
+      "findings": [
+        {
+          "agent": "metrics-agent",
+          "category": "dependency_failure",
+          "confidence": 0.85,
+          "severity": "HIGH",
+          "title": "Dependency failures affecting profile-api"
+        },
+        {
+          "agent": "trace-agent",
+          "category": "latency_degradation",
+          "confidence": 0.8,
+          "severity": "MEDIUM",
+          "title": "Latency dominated by downstream dependencies for profile-api"
+        },
+        {
+          "agent": "metrics-agent",
+          "category": "latency_degradation",
+          "confidence": 0.9,
+          "severity": "LOW",
+          "title": "Performance analysis for profile-api"
+        }
+      ],
+      "first_action": {
+        "kind": "nothing"
+      },
+      "id": "GS-13",
+      "predicted_root_cause": {
+        "kind": "one",
+        "value": "dependency_failure"
+      },
+      "proposals": [],
+      "rca": {
+        "correct": true,
+        "engine": "claude",
+        "judge_reason": "The analysis names the Redis profile cache failing on about 33% of calls as the root cause. It also correctly reads the fallback as masking those failures at the cost of latency. That matches the ground truth's dependency failure. Speculating about a missing circuit breaker is only listed as a possible contributing factor, so it does not change the primary cause.",
+        "root_cause": "The profile-api is experiencing degraded performance driven by its Redis dependency (profile-cache.redis.cache.windows.net:6380), which is exhibiting a 33% failure rate. Because the GET /v1/profile/{id} operation spends ~88% of its 1250ms end-to-end latency in downstream calls, the unhealthy/failing Redis cache is the dominant source of both latency and dependency errors.",
+        "verdict": "correct"
+      },
+      "remediation_correct": true,
+      "root_cause_correct": true,
+      "root_cause_detected": true,
+      "signal_fn": [],
+      "signal_fp": [],
+      "signal_tp": [
+        "dependency_failure",
+        "latency_degradation"
+      ],
+      "tags": [
+        "dependency",
+        "pair:dependency-hard-vs-soft"
+      ],
+      "title": "Redis cache degrades but profile-api falls back to SQL",
+      "unqueried_fixtures": [],
+      "unrecognized_queries": 0,
+      "unwarranted_action": false
+    },
+    {
+      "detected": [],
+      "duration_ms": 5,
+      "escalated": false,
+      "expected_escalate": true,
+      "expected_remediation": [
+        "none"
+      ],
+      "expected_root_cause": "traffic_anomaly",
+      "findings": [
+        {
+          "agent": "metrics-agent",
+          "category": "latency_degradation",
+          "confidence": 0.6,
+          "severity": "LOW",
+          "title": "Performance analysis for checkout-api"
+        }
+      ],
+      "first_action": {
+        "kind": "nothing"
+      },
+      "id": "GS-14",
+      "predicted_root_cause": {
+        "kind": "nothing"
+      },
+      "proposals": [],
+      "rca": {
+        "correct": false,
+        "engine": "claude",
+        "judge_reason": "The ground truth is that a Front Door routing change upstream stopped traffic from reaching checkout-api, and the Sev1 needs a human page. The analysis says no clear root cause was found and leans toward 'transient/already-resolved' or an alert misconfiguration. It notes the low request volume only in passing, as a statistical reliability concern, and does not identify the traffic collapse or an upstream routing problem as the cause. Suggesting the incident is likely resolved is the dangerous conclusion the ground truth warns against. Because the ground truth has an actual cause (traffic_anomaly), an analysis that says 'no cause' with a misleading resolved/transient lean is incorrect.",
+        "root_cause": "No clear root cause identified. The only available finding (metrics-agent latency analysis) shows healthy performance: P95 latency of 95ms, P99 of 160ms, and a 0.0% failure rate over 37 requests in the most recent minute. These metrics are inconsistent with the Sev1-Error severity of the alert, suggesting either a transient/already-resolved condition or a mismatch between the alert trigger and the collected telemetry.",
+        "verdict": "incorrect"
+      },
+      "remediation_correct": true,
+      "root_cause_correct": false,
+      "root_cause_detected": false,
+      "signal_fn": [
+        "traffic_anomaly"
+      ],
+      "signal_fp": [],
+      "signal_tp": [],
+      "tags": [
+        "traffic",
+        "pair:quiet-telemetry"
+      ],
+      "title": "Front Door route change blackholes checkout traffic",
+      "unqueried_fixtures": [],
+      "unrecognized_queries": 0,
+      "unwarranted_action": false
+    }
+  ],
+  "summary": {
+    "all_checks": {
+      "hits": 3,
+      "total": 14
+    },
+    "detection_precision": {
+      "hits": 22,
+      "total": 24
+    },
+    "detection_recall": {
+      "hits": 22,
+      "total": 25
+    },
+    "escalation": {
+      "hits": 13,
+      "total": 14
+    },
+    "mean_duration_ms": 5.928571428571429,
+    "missed_pages": 1,
+    "per_category": {
+      "dependency_failure": {
+        "fn": 0,
+        "fp": 0,
+        "tp": 4
+      },
+      "deployment_correlation": {
+        "fn": 0,
+        "fp": 0,
+        "tp": 3
+      },
+      "error_spike": {
+        "fn": 0,
+        "fp": 2,
+        "tp": 7
+      },
+      "latency_degradation": {
+        "fn": 0,
+        "fp": 0,
+        "tp": 7
+      },
+      "resource_exhaustion": {
+        "fn": 2,
+        "fp": 0,
+        "tp": 0
+      },
+      "service_health": {
+        "fn": 0,
+        "fp": 0,
+        "tp": 1
+      },
+      "traffic_anomaly": {
+        "fn": 1,
+        "fp": 0,
+        "tp": 0
+      }
+    },
+    "rca_correct": {
+      "hits": 10,
+      "total": 14
+    },
+    "rca_errors": 0,
+    "remediation": {
+      "hits": 7,
+      "total": 14
+    },
+    "root_cause_ambiguous": 1,
+    "root_cause_detected": {
+      "hits": 9,
+      "total": 12
+    },
+    "root_cause_top1": {
+      "hits": 4,
+      "total": 14
+    },
+    "scenarios": 14,
+    "unnecessary_pages": 0,
+    "unwarranted_actions": 4
+  }
+}

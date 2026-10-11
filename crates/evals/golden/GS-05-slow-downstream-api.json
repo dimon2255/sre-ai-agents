@@ -1,0 +1,43 @@
+{
+  "id": "GS-05",
+  "title": "Third-party fraud scoring API slows to 3 seconds",
+  "narrative": "The external fraud-scoring partner degrades and its p95 response time rises from 300 ms to 3.6 seconds. Almost nothing fails outright, but every authorization waits on the call, so payments-api p95 reaches 3.9 seconds. A handful of calls hit the client timeout. payments-api has spare CPU and memory, and adding replicas would only send more concurrent calls to the struggling partner.",
+  "tags": ["dependency", "pair:latency-in-process-vs-downstream"],
+  "alert": {
+    "rule": "Response time > 3 seconds",
+    "severity": "Sev2",
+    "signal_type": "Metric",
+    "resource": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-payments-prod/providers/Microsoft.App/containerApps/payments-api"
+  },
+  "telemetry": {
+    "latency_analysis": [
+      {"TimeGenerated": "2026-10-11T16:40:00Z", "P50": 2900, "P95": 3900, "P99": 5200, "FailureRate": 0.4, "TotalRequests": 2100}
+    ],
+    "dependency_performance": [
+      {"DependencyType": "HTTP", "Target": "fraud-score.partner.example", "CallCount": 2050, "FailureCount": 6, "AvgDuration": 3100.0, "P95Duration": 3600.0, "FailureRate": 0.29},
+      {"DependencyType": "SQL", "Target": "payments-sql.database.example", "CallCount": 6100, "FailureCount": 1, "AvgDuration": 11.0, "P95Duration": 35.0, "FailureRate": 0.02}
+    ],
+    "trace_latency_breakdown": [
+      {"OperationName": "POST /v1/payments/authorize", "SlowTraces": 1650, "AvgRequestMs": 3650.0, "AvgDependencyMs": 3210.0, "AvgDependencyShare": 87.9}
+    ],
+    "trace_failure_correlation": [
+      {"RequestName": "POST /v1/payments/authorize", "DependencyTarget": "fraud-score.partner.example", "DependencyType": "HTTP", "DependencyResultCode": "Canceled", "FailedTraces": 8, "DependencyFailures": 6}
+    ],
+    "error_spike": [
+      {"TimeGenerated": "2026-10-11T16:39:00Z", "ExceptionType": "System.Threading.Tasks.TaskCanceledException", "ProblemId": "System.Threading.Tasks.TaskCanceledException at Payments.Api.Fraud.FraudClient.ScoreAsync", "ErrorCount": 4, "DistinctErrors": 1}
+    ],
+    "error_details": [
+      {"TimeGenerated": "2026-10-11T16:39:20Z", "ExceptionType": "System.Threading.Tasks.TaskCanceledException", "OuterMessage": "The request was canceled due to the configured HttpClient.Timeout of 5 seconds elapsing.", "InnermostMessage": "A task was canceled.", "ProblemId": "System.Threading.Tasks.TaskCanceledException at Payments.Api.Fraud.FraudClient.ScoreAsync", "SeverityLevel": 3}
+    ],
+    "failure_breakdown": [
+      {"OperationName": "POST /v1/payments/authorize", "ResultCode": "504", "FailureCount": 8, "AvgDuration": 5010.0}
+    ]
+  },
+  "expected": {
+    "root_cause": "dependency_failure",
+    "signals": ["dependency_failure", "latency_degradation"],
+    "escalate": false,
+    "remediation": ["none"],
+    "rationale": "Trace breakdown puts 88 percent of request time in the fraud-scoring call. The cause is a degraded downstream dependency. Eight failures in 2,100 requests (0.4 percent) is not an error spike. Scaling payments-api adds load to the partner and fixes nothing."
+  }
+}

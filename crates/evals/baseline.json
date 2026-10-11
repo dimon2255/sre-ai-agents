@@ -1,0 +1,86 @@
+{
+  "GS-01": {
+    "escalation": true,
+    "remediation": false,
+    "root_cause": false,
+    "signals": true
+  },
+  "GS-02": {
+    "escalation": true,
+    "remediation": false,
+    "root_cause": false,
+    "signals": true
+  },
+  "GS-03": {
+    "escalation": true,
+    "remediation": false,
+    "root_cause": false,
+    "signals": true
+  },
+  "GS-04": {
+    "escalation": true,
+    "remediation": true,
+    "root_cause": false,
+    "signals": false
+  },
+  "GS-05": {
+    "escalation": true,
+    "remediation": false,
+    "root_cause": false,
+    "signals": false
+  },
+  "GS-06": {
+    "escalation": true,
+    "remediation": true,
+    "root_cause": false,
+    "signals": false
+  },
+  "GS-07": {
+    "escalation": true,
+    "remediation": true,
+    "root_cause": true,
+    "signals": true
+  },
+  "GS-08": {
+    "escalation": true,
+    "remediation": false,
+    "root_cause": false,
+    "signals": true
+  },
+  "GS-09": {
+    "escalation": true,
+    "remediation": true,
+    "root_cause": false,
+    "signals": false
+  },
+  "GS-10": {
+    "escalation": true,
+    "remediation": false,
+    "root_cause": false,
+    "signals": true
+  },
+  "GS-11": {
+    "escalation": true,
+    "remediation": false,
+    "root_cause": true,
+    "signals": true
+  },
+  "GS-12": {
+    "escalation": true,
+    "remediation": true,
+    "root_cause": true,
+    "signals": true
+  },
+  "GS-13": {
+    "escalation": true,
+    "remediation": true,
+    "root_cause": true,
+    "signals": true
+  },
+  "GS-14": {
+    "escalation": false,
+    "remediation": true,
+    "root_cause": false,
+    "signals": false
+  }
+}

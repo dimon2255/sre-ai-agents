@@ -395,3 +395,77 @@ Docker daemon, superseding the "not runnable in this environment" note under
 Production-Readiness Hardening (2026-07-05). Full suite on this branch:
 **316 passed, 0 failed** (`cargo test --workspace`), with `fmt --check` and
 `clippy --workspace -D warnings` clean.
+
+---
+
+## Golden-Set Evaluation (2026-10-11)
+
+**Status**: Harness, golden set and CI gate complete. LLM tier run three times against
+the real API on 2026-10-11 (Max-plan promotional API credits). Branch: `features/golden-set-evals`. See
+[ADR-023](adr/023-golden-set-evaluation.md), the
+[harness diagram](diagrams/eval-harness.md) and the
+[baseline report](evals/golden-set-report.md).
+
+**Goal**: measure whether an investigation reaches the right answer (root cause,
+escalation, remediation), not only whether each component behaves as coded.
+
+| Item | Status | Notes |
+|------|--------|-------|
+| `crates/evals` harness (fixture KQL server, real orchestrator + 5 agents) | Done | Only the Azure query endpoint is replaced. Template routing guarded by a unit test. |
+| Scoring + scorecard (Markdown + JSON) | Done | Order-independent: top-tier ties scored as misses. Identical across 3 runs. |
+| 14-scenario golden set | Done | Hand-authored fixtures, one labeler. Contrastive pairs. |
+| CI ratchet gate (`baseline.json`) | Done | Verified to fail on an injected regression. Runs under `cargo test --workspace`. |
+| Opt-in LLM-judge tier (`--engine claude`) | Done (3 runs) | Real API, 84 calls, 0 failures. Claude RCA judged correct 10 of 14 (71%) in every run, same 10 each time. `--summarize-runs` combines runs. |
+
+### Baseline (rule-based pipeline)
+
+Root cause top-1 4 of 14 (29%); root cause found at any rank 9 of 12 (75%);
+detection precision 22 of 24 (92%), recall 22 of 25 (88%); escalation 13 of 14
+(1 missed page); first-choice remediation 7 of 14 (50%), 4 unwarranted actions.
+
+LLM tier (three runs, `claude-opus-4-8` RCA judged by `claude-opus-5-5`): 10 of
+14 (71%) judged correct in each run, pooled 30 of 42. It fixed 7 of the 10 rule-based root-cause misses and got
+one rule-based pass wrong (GS-12). Remediation and paging are unaffected because
+they still come from the rule-based findings.
+
+### Defects found by the evaluation (not fixed in this change)
+
+| # | Severity | Issue | Scenarios |
+|---|----------|-------|-----------|
+| 1 | High | Findings ranked by severity alone, so symptoms (error spike, latency) outrank causes (deploy, dependency, platform). | GS-01, 02, 03, 05, 08, 10 |
+| 2 | High | Traffic collapse with healthy telemetry resolves without a page: no volume check, and a Low finding lifts confidence over the 0.5 threshold. | GS-14 |
+| 3 | High | Rollback filed under `RestartWorkload`; `propose()` keeps one per category, so a restart (0.90) silently discards the rollback (0.80). | GS-01, 08 |
+| 4 | Medium | `resource_utilization` KQL template is never queried; resource exhaustion is never detected. | GS-04, 09 |
+| 5 | Medium | Playbook proposes restart/scale for causes they cannot fix (dependency, platform, bad input, slow partner). | GS-02, 03, 05, 11 |
+| 6 | Medium | Failure breakdown grades by absolute count, not rate: 6 of 3,100 failures becomes a Medium error spike. | GS-05, 06 |
+| 7 | Low | Reasoning engine receives the alert id as trigger, not the alert rule or description. | GS-14 (LLM tier) |
+
+### Decisions
+
+- Labels describe the incident, not the code; written before the first run.
+  Equivalent categories within one causal family use explicit `a|b` labels.
+- A finding counts as a detection only at Medium severity or above, so status
+  readouts (the Low latency summary emitted on every run) are not claims.
+- The LLM RCA defaults to the platform's configured `reasoning.model`
+  (`claude-opus-4-8`) so the eval measures what production would run; the judge
+  defaults to `claude-opus-5-5` with structured output and server-side
+  refusal fallback.
+
+### Verification
+
+- `cargo test --workspace`: 330 passed, 0 failed (Docker suites included).
+  `cargo test -p sre-evals`: 16 unit tests plus the ratchet gate.
+- `fmt --check` and `clippy --workspace -D warnings` clean; `clippy -p sre-evals
+  --all-targets -D warnings` clean.
+- Fresh-context review: APPROVE. Its suggestions were applied before commit: runs
+  where a tasked agent never replied are now rejected instead of scored; the
+  per-category table credits the category actually emitted; LLM-tier API errors
+  are excluded from the RCA denominator and counted separately; `--only` no longer
+  reports skipped scenarios as regressions; fixture markers no longer use bare
+  table names, and a test fails if a KQL template is added without a fixture key.
+
+### Known issues
+
+- Fixtures are hand-authored, not captured from production.
+- Labels have one author; needs a second-reviewer pass.
+- Fourteen scenarios is too small for a held-out split.

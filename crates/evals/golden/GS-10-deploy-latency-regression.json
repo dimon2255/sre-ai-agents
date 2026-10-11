@@ -1,0 +1,36 @@
+{
+  "id": "GS-10",
+  "title": "Deploy ships a slow pricing rule and latency doubles",
+  "narrative": "A new pricing-api revision introduces a rule evaluated with an unanchored regular expression on every quote. Eighteen minutes after the deploy, p95 latency rises from 600 ms to 2.45 seconds. Nothing fails, dependencies are fast, and CPU rises but is not saturated. Scaling out hides the cost per request but does not remove it; rolling back does.",
+  "tags": ["change", "pair:change-config-vs-code"],
+  "alert": {
+    "rule": "Response time > 2 seconds",
+    "severity": "Sev2",
+    "signal_type": "Metric",
+    "resource": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-pricing-prod/providers/Microsoft.App/containerApps/pricing-api"
+  },
+  "telemetry": {
+    "recent_deployments": [
+      {"TimeGenerated": "2026-10-11T15:02:09Z", "OperationNameValue": "MICROSOFT.APP/CONTAINERAPPS/WRITE", "ActivityStatusValue": "Success", "Caller": "ci-deployer@contoso.example", "ResourceGroup": "rg-pricing-prod", "Resource": "pricing-api"}
+    ],
+    "latency_analysis": [
+      {"TimeGenerated": "2026-10-11T15:20:00Z", "P50": 1100, "P95": 2450, "P99": 3900, "FailureRate": 0.0, "TotalRequests": 4200}
+    ],
+    "resource_utilization": [
+      {"TimeGenerated": "2026-10-11T15:20:00Z", "Name": "% Processor Time", "AvgValue": 62.0, "MaxValue": 74.0}
+    ],
+    "dependency_performance": [
+      {"DependencyType": "SQL", "Target": "pricing-sql.database.example", "CallCount": 8400, "FailureCount": 0, "AvgDuration": 9.0, "P95Duration": 25.0, "FailureRate": 0.0}
+    ],
+    "trace_latency_breakdown": [
+      {"OperationName": "GET /v1/prices/quote", "SlowTraces": 2100, "AvgRequestMs": 2300.0, "AvgDependencyMs": 150.0, "AvgDependencyShare": 6.5}
+    ]
+  },
+  "expected": {
+    "root_cause": "deployment_correlation",
+    "signals": ["deployment_correlation", "latency_degradation"],
+    "escalate": false,
+    "remediation": ["rollback_deployment"],
+    "rationale": "Latency rose shortly after the deploy and the time is spent in-process, not in dependencies. CPU at 62 percent is elevated but not exhausted. The deploy is the cause and a rollback is the fix."
+  }
+}

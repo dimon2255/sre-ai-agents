@@ -1,0 +1,27 @@
+{
+  "id": "GS-14",
+  "title": "Front Door route change blackholes checkout traffic",
+  "narrative": "A routing rule change on the shared Front Door profile, a different resource from checkout-api, sends checkout traffic to an origin group with no healthy members. Customers get errors from Front Door and their requests never reach checkout-api. From checkout-api's point of view everything is healthy: the few requests it still sees from internal health checks are fast and succeed, and its own Activity Log shows no change. Revenue is dropping and only a human can find the cause.",
+  "tags": ["traffic", "pair:quiet-telemetry"],
+  "alert": {
+    "rule": "Request count < 100 in 5 minutes",
+    "severity": "Sev1",
+    "signal_type": "Metric",
+    "resource": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-checkout-prod/providers/Microsoft.App/containerApps/checkout-api"
+  },
+  "telemetry": {
+    "latency_analysis": [
+      {"TimeGenerated": "2026-10-11T19:25:00Z", "P50": 40, "P95": 95, "P99": 160, "FailureRate": 0.0, "TotalRequests": 37}
+    ],
+    "dependency_performance": [
+      {"DependencyType": "SQL", "Target": "checkout-sql.database.example", "CallCount": 40, "FailureCount": 0, "AvgDuration": 8.0, "P95Duration": 15.0, "FailureRate": 0.0}
+    ]
+  },
+  "expected": {
+    "root_cause": "traffic_anomaly",
+    "signals": ["traffic_anomaly"],
+    "escalate": true,
+    "remediation": ["none"],
+    "rationale": "A Sev1 alert on a collapse in request volume, with healthy telemetry otherwise, means the traffic is not arriving. The platform cannot see the upstream cause, so a confident 'resolved' would leave a revenue-impacting outage unattended. It must page."
+  }
+}

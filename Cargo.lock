@@ -3486,6 +3486,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "sre-evals"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "clap",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sre-agents",
+ "sre-azure",
+ "sre-common",
+ "sre-intelligence",
+ "sre-orchestrator",
+ "sre-store",
+ "tokio",
+ "uuid",
+ "wiremock",
+]
+
+[[package]]
 name = "sre-gates"
 version = "0.1.0"
 dependencies = [

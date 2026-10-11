@@ -1,0 +1,22 @@
+{
+  "id": "GS-07",
+  "title": "Real outage while the platform's telemetry access is revoked",
+  "narrative": "identity-api is returning server errors. At the same time, a role-assignment cleanup removed the platform's reader access to Log Analytics and Application Insights, so every query returns 403. The platform can see nothing. It must not invent a cause, propose an action, or report the incident as handled.",
+  "tags": ["blind"],
+  "alert": {
+    "rule": "Http 5xx > 100 in 5 minutes",
+    "severity": "Sev1",
+    "signal_type": "Metric",
+    "resource": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-identity-prod/providers/Microsoft.App/containerApps/identity-api"
+  },
+  "telemetry": {
+    "*": {"status": 403, "message": "{\"error\":{\"code\":\"InsufficientAccessError\",\"message\":\"The provided credentials have insufficient access to perform the requested operation\"}}"}
+  },
+  "expected": {
+    "root_cause": "none",
+    "signals": [],
+    "escalate": true,
+    "remediation": ["none"],
+    "rationale": "With every query denied there is no evidence. The only correct behavior is to claim nothing and page a human."
+  }
+}
