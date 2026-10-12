@@ -51,7 +51,7 @@ pub struct AzureArmClient {
 impl AzureArmClient {
     pub fn new(credential: Arc<dyn TokenProvider>) -> Self {
         Self {
-            http: reqwest::Client::builder()
+            http: sre_common::http::client_builder()
                 .timeout(std::time::Duration::from_secs(60))
                 .build()
                 .expect("failed to build HTTP client"),

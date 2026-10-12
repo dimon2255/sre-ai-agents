@@ -21,10 +21,14 @@ impl PagerDutyNotifier {
         Self {
             // Bounded so a hung PagerDuty endpoint cannot hold the
             // investigation's concurrency permit open indefinitely.
-            http: reqwest::Client::builder()
+            http: sre_common::http::client_builder()
                 .timeout(Duration::from_secs(10))
                 .build()
-                .unwrap_or_else(|_| reqwest::Client::new()),
+                .unwrap_or_else(|_| {
+                    sre_common::http::client_builder()
+                        .build()
+                        .expect("reqwest client")
+                }),
             routing_key,
         }
     }

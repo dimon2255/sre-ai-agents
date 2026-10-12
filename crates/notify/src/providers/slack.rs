@@ -18,10 +18,14 @@ impl SlackNotifier {
             // blackholed proxy; because notify runs while the investigation
             // holds its concurrency permit, that would leak permits and wedge
             // the dispatch loop. Bound every send.
-            http: reqwest::Client::builder()
+            http: sre_common::http::client_builder()
                 .timeout(Duration::from_secs(10))
                 .build()
-                .unwrap_or_else(|_| reqwest::Client::new()),
+                .unwrap_or_else(|_| {
+                    sre_common::http::client_builder()
+                        .build()
+                        .expect("reqwest client")
+                }),
             webhook_url,
         }
     }

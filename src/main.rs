@@ -69,6 +69,9 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // reqwest is built without a crypto provider (workspace Cargo.toml); install ring
+    // before anything constructs a TLS config.
+    sre_common::http::ensure_crypto_provider();
     let cli = Cli::parse();
 
     // Load configuration before tracing so OTel layer can be conditionally added

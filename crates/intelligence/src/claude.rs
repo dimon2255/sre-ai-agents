@@ -23,7 +23,7 @@ pub struct ClaudeReasoningEngine {
 impl ClaudeReasoningEngine {
     pub fn new(api_key: String, model: String, max_tokens: u32, base_url: Option<String>) -> Self {
         Self {
-            http: reqwest::Client::builder()
+            http: sre_common::http::client_builder()
                 .timeout(std::time::Duration::from_secs(60))
                 .build()
                 .expect("failed to build HTTP client"),

@@ -94,7 +94,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # HTTP
-reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+# reqwest 0.13 defaults to rustls with the aws-lc-rs provider, which needs cmake and
+# NASM to build. The rest of the tree (sqlx, hyper-rustls, tokio-rustls) already uses
+# ring, so reqwest is built without a provider and `sre_common::http::client_builder`
+# installs ring as the process default before any client is built.
+reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls-no-provider", "charset", "http2"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 
 # Azure
 azure_identity = "0.22"

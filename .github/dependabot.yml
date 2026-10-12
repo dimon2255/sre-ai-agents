@@ -39,9 +39,9 @@ updates:
       cargo-minor-patch:
         update-types: ["minor", "patch"]
       # Major bumps stay in their own PR. They break APIs (async-nats 0.48->0.50
-      # needed a manifest edit; reqwest 0.13 needs the three workspace crates
-      # that still pin 0.12 to move together) and need per-crate review, which
-      # a batched PR would hide.
+      # needed a manifest edit; reqwest 0.12->0.13 renamed its TLS features and
+      # changed the default crypto provider) and need per-crate review, which a
+      # batched PR would hide.
 
   - package-ecosystem: "docker"
     directory: "/"
