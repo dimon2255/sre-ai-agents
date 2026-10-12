@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 cargo build --workspace          # Build all crates
-cargo test --workspace           # Run all tests (335 unit + integration; Docker required)
+cargo test --workspace           # Run all tests (337 unit + integration; Docker required)
 cargo test -p sre-store          # Test a single crate
 cargo test -p sre-azure -- kql   # Run tests matching "kql" in sre-azure
 cargo clippy --workspace         # Lint
