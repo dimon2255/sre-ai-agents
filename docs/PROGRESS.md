@@ -469,3 +469,21 @@ they still come from the rule-based findings.
 - Fixtures are hand-authored, not captured from production.
 - Labels have one author; needs a second-reviewer pass.
 - Fourteen scenarios is too small for a held-out split.
+
+---
+
+## Dependency & CI Maintenance (2026-10-11)
+
+`Security Audit` was red on main from 2026-09-21 and failed on every PR,
+including the open Dependabot PRs (#64 cargo, replaced by #67 during this work; #65 Docker). Branch:
+`bugfixes/rustls-advisory-dependabot-consolidation`.
+
+### Fixed
+
+| # | Severity | Issue | Fix |
+|---|----------|-------|-----|
+| 1 | High | A **real** advisory: RUSTSEC-2026-0285, `rustls` 0.23.43 "TLS 1.3 handshake messages incorrectly accepted across encryption level boundaries" (published 2026-09-14). The workflow was reporting correctly. | One `cargo update` lifts `rustls` to 0.23.45. `cargo audit` with CI's flags fails on main's lockfile and exits 0 on this branch, with no warnings. |
+| 2 | Low | Two Dependabot PRs open against a shared `Cargo.lock` / `Dockerfile`. | Consolidated: the same `cargo update` carries all five bumps from #67 (`tokio`, `uuid`, `thiserror`, `config`, `clap`; `uuid` one minor newer), which superseded #64; the Dockerfile takes #65's `rust` 1.98 to 1.99 builder image unchanged. |
+
+Same pattern as the 2026-08-31 consolidation (#60): one lockfile resolution,
+the superseded Dependabot PRs closed with a pointer once this merges.
