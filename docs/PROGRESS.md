@@ -378,8 +378,16 @@ Versions landed: `async-nats` 0.48→0.50 (manifest edit), `clap` 4.6.6,
 
 ### Known constraints
 
-- **`reqwest` is stuck at 0.12.** `opentelemetry-otlp` 0.32 requires 0.13, so the
-  graph carries both majors. Our crates cannot move to 0.13 until OTel unifies.
+- **`reqwest` moved to 0.13 on 2026-10-12.** The graph had carried both majors since
+  `opentelemetry-otlp` moved first; our five crates followed in one change. 0.13
+  defaults to the `aws-lc-rs` crypto provider (a native build), so it is compiled with
+  `rustls-no-provider` and `sre_common::http::client_builder` installs `ring` before
+  any client is built; `reqwest::Client::builder()`, `Client::new()` and
+  `reqwest::get` must not be called directly. Accepted behaviour change: 0.12 used
+  native-tls (OpenSSL on Linux, SChannel on Windows) without ALPN, so every call was
+  HTTP/1.1; 0.13 uses rustls with the platform certificate verifier and negotiates
+  HTTP/2 where the server offers it. Root certificates still come from the OS store,
+  which the Docker image provides through `ca-certificates`.
 - **Dependabot's cargo sweep** failed 2026-08-17 and 2026-08-24, and did not run
   2026-08-31. Logs have expired (HTTP 410), so the cause is **unconfirmed**. A
   forced run on 2026-08-31 succeeded and the lockfile is now fully refreshed.

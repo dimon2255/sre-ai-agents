@@ -130,7 +130,7 @@ pub struct Judge {
 impl Judge {
     pub fn new(api_key: String, model: String, base_url: Option<String>) -> Self {
         Self {
-            http: reqwest::Client::builder()
+            http: sre_common::http::client_builder()
                 .timeout(std::time::Duration::from_secs(300))
                 .build()
                 .expect("failed to build HTTP client"),

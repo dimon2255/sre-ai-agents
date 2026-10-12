@@ -12,3 +12,6 @@ thiserror.workspace = true
 tokio.workspace = true
 anyhow.workspace = true
 url.workspace = true
+# HTTP client plus the ring crypto provider that `http::client_builder` installs.
+reqwest.workspace = true
+rustls.workspace = true

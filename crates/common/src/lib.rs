@@ -1,6 +1,7 @@
 pub mod config;
 pub mod errors;
 pub mod findings;
+pub mod http;
 pub mod messages;
 pub mod remediation;
 

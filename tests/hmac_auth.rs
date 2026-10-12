@@ -53,7 +53,9 @@ async fn valid_signature_and_timestamp_returns_202() {
     let ts = now_secs();
     let sig = hmac_auth::sign(SECRET, ts, body);
 
-    let resp = reqwest::Client::new()
+    let resp = sre_common::http::client_builder()
+        .build()
+        .expect("reqwest client")
         .post(format!("{base_url}/api/v1/alerts/azure"))
         .header(hmac_auth::SIGNATURE_HEADER, sig)
         .header(hmac_auth::TIMESTAMP_HEADER, ts.to_string())
@@ -73,7 +75,9 @@ async fn invalid_signature_returns_401() {
     // Sign with the wrong secret — same format, wrong HMAC.
     let sig = hmac_auth::sign(b"wrong-secret", ts, body);
 
-    let resp = reqwest::Client::new()
+    let resp = sre_common::http::client_builder()
+        .build()
+        .expect("reqwest client")
         .post(format!("{base_url}/api/v1/alerts/azure"))
         .header(hmac_auth::SIGNATURE_HEADER, sig)
         .header(hmac_auth::TIMESTAMP_HEADER, ts.to_string())
@@ -91,7 +95,9 @@ async fn missing_signature_header_returns_401() {
     let body = br#"{"alert":"test"}"#;
     let ts = now_secs();
 
-    let resp = reqwest::Client::new()
+    let resp = sre_common::http::client_builder()
+        .build()
+        .expect("reqwest client")
         .post(format!("{base_url}/api/v1/alerts/azure"))
         .header(hmac_auth::TIMESTAMP_HEADER, ts.to_string())
         .body(body.to_vec())
@@ -109,7 +115,9 @@ async fn missing_timestamp_header_returns_401() {
     let ts = now_secs();
     let sig = hmac_auth::sign(SECRET, ts, body);
 
-    let resp = reqwest::Client::new()
+    let resp = sre_common::http::client_builder()
+        .build()
+        .expect("reqwest client")
         .post(format!("{base_url}/api/v1/alerts/azure"))
         .header(hmac_auth::SIGNATURE_HEADER, sig)
         .body(body.to_vec())
@@ -128,7 +136,9 @@ async fn expired_timestamp_returns_401() {
     let ts = now_secs() - 600;
     let sig = hmac_auth::sign(SECRET, ts, body);
 
-    let resp = reqwest::Client::new()
+    let resp = sre_common::http::client_builder()
+        .build()
+        .expect("reqwest client")
         .post(format!("{base_url}/api/v1/alerts/azure"))
         .header(hmac_auth::SIGNATURE_HEADER, sig)
         .header(hmac_auth::TIMESTAMP_HEADER, ts.to_string())
@@ -148,7 +158,9 @@ async fn malformed_signature_prefix_returns_401() {
     // Missing "sha256=" prefix.
     let bare_hex = "a".repeat(64);
 
-    let resp = reqwest::Client::new()
+    let resp = sre_common::http::client_builder()
+        .build()
+        .expect("reqwest client")
         .post(format!("{base_url}/api/v1/alerts/azure"))
         .header(hmac_auth::SIGNATURE_HEADER, bare_hex)
         .header(hmac_auth::TIMESTAMP_HEADER, ts.to_string())
@@ -168,7 +180,9 @@ async fn body_tampering_returns_401() {
     // Sign the original body, then send a different one.
     let sig = hmac_auth::sign(SECRET, ts, body);
 
-    let resp = reqwest::Client::new()
+    let resp = sre_common::http::client_builder()
+        .build()
+        .expect("reqwest client")
         .post(format!("{base_url}/api/v1/alerts/azure"))
         .header(hmac_auth::SIGNATURE_HEADER, sig)
         .header(hmac_auth::TIMESTAMP_HEADER, ts.to_string())

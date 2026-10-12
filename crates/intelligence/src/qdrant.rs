@@ -37,7 +37,7 @@ impl QdrantKnowledgeStore {
         api_key: Option<String>,
     ) -> Self {
         Self {
-            http: reqwest::Client::builder()
+            http: sre_common::http::client_builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
                 .expect("failed to build HTTP client"),

@@ -18,7 +18,7 @@ pub struct AzureAlertsClient {
 impl AzureAlertsClient {
     pub fn new(credential: Arc<dyn TokenProvider>, subscription_id: String) -> Self {
         Self {
-            http: reqwest::Client::builder()
+            http: sre_common::http::client_builder()
                 .timeout(std::time::Duration::from_secs(30))
                 .build()
                 .expect("Failed to create HTTP client"),
