@@ -1,12 +1,13 @@
 //! Shared HTTP client construction.
 //!
 //! `reqwest` 0.13 is built with `rustls-no-provider` (see the workspace
-//! `Cargo.toml`): its default `rustls` feature pulls in `aws-lc-rs`, which needs
-//! cmake and NASM to compile, while the rest of this tree already uses `ring`.
-//! The cost of that choice is that `reqwest` panics at `Client::build()` unless a
-//! process-wide crypto provider has been installed first. Every client in the
-//! workspace is therefore built through [`client_builder`], which installs `ring`
-//! on first use. Nothing here touches the network.
+//! `Cargo.toml`): its default `rustls` feature pulls in `aws-lc-rs`, a native build,
+//! while `sqlx` and `tokio-rustls` in this tree already enable `ring`. The cost of
+//! that choice is that `reqwest` panics at `Client::build()` unless a process-wide
+//! crypto provider has been installed first. Every client in the workspace,
+//! including `reqwest::get` shortcuts in tests, is therefore built through
+//! [`client_builder`], which installs `ring` on first use. Nothing here touches
+//! the network.
 
 /// Install `ring` as the process-wide rustls crypto provider.
 ///

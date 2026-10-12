@@ -542,7 +542,7 @@ tokio = { version = "1", features = ["full"] }    # NuGet: Install-Package tokio
 sre-common = { path = "crates/common" }           # Project reference
 
 [dev-dependencies]               # Like test-only packages
-reqwest = "0.13"                 # Only available in tests
+reqwest = { workspace = true }   # Only available in tests; version set once in [workspace.dependencies]
 
 [workspace]                      # Like a .sln file
 members = ["crates/common", "crates/store", ...]

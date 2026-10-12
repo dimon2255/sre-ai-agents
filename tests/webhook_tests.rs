@@ -206,7 +206,13 @@ async fn setup_test_server_with_config(
 async fn test_healthz_returns_200() {
     let (base_url, _store, _container) = setup_test_server().await;
 
-    let resp = reqwest::get(format!("{base_url}/healthz")).await.unwrap();
+    let resp = sre_common::http::client_builder()
+        .build()
+        .expect("reqwest client")
+        .get(format!("{base_url}/healthz"))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
 }
 
@@ -214,7 +220,13 @@ async fn test_healthz_returns_200() {
 async fn test_readyz_returns_200_when_db_healthy() {
     let (base_url, _store, _container) = setup_test_server().await;
 
-    let resp = reqwest::get(format!("{base_url}/readyz")).await.unwrap();
+    let resp = sre_common::http::client_builder()
+        .build()
+        .expect("reqwest client")
+        .get(format!("{base_url}/readyz"))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
 }
 
@@ -222,7 +234,13 @@ async fn test_readyz_returns_200_when_db_healthy() {
 async fn test_startupz_returns_200() {
     let (base_url, _store, _container) = setup_test_server().await;
 
-    let resp = reqwest::get(format!("{base_url}/startupz")).await.unwrap();
+    let resp = sre_common::http::client_builder()
+        .build()
+        .expect("reqwest client")
+        .get(format!("{base_url}/startupz"))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
 }
 
