@@ -1,6 +1,7 @@
-# Keeps dependencies — including SHA-pinned GitHub Actions — current.
-# Pinning actions to a commit SHA (supply-chain hardening) is only safe if a
-# bot keeps the pins fresh; that is Dependabot's job here.
+# Keeps Cargo crates, GitHub Actions and the Docker base image current.
+# The workflows pin actions to tags or branches (e.g. actions/checkout@v7,
+# dtolnay/rust-toolchain@stable), not commit SHAs; SHA pinning is an open
+# hardening item in docs/PROGRESS.md.
 #
 # Everything is grouped. Ungrouped, each bump arrived as its own PR against a
 # shared Cargo.lock, so they could not be merged in any order without rebasing

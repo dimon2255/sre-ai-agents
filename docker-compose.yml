@@ -1,0 +1,18 @@
+# Local PostgreSQL for `cargo run -- serve` and `cargo run -- investigate`.
+# Matches the default `store.database_url` in config/default.toml. Local
+# development only: the port is bound to 127.0.0.1 and the password is a
+# placeholder. `cargo test` does not need this; the integration suites start
+# their own containers through testcontainers.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: sre_agents
+    ports:
+      - "127.0.0.1:${SRE_PG_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sre_agents"]
+      interval: 2s
+      timeout: 3s
+      retries: 15

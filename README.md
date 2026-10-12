@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/dimon2255/sre-ai-agents/actions/workflows/ci.yml/badge.svg)](https://github.com/dimon2255/sre-ai-agents/actions/workflows/ci.yml)
 [![Security Audit](https://github.com/dimon2255/sre-ai-agents/actions/workflows/security.yml/badge.svg)](https://github.com/dimon2255/sre-ai-agents/actions/workflows/security.yml)
-[![Rust](https://img.shields.io/badge/rust-1.86%2B-orange?logo=rust)](https://www.rust-lang.org)
+[![Rust](https://img.shields.io/badge/rust-1.94%2B-orange?logo=rust)](https://www.rust-lang.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](#license)
-[![Coverage](https://img.shields.io/badge/coverage-85%25-brightgreen)](docs/PROGRESS.md)
+[![Coverage](https://img.shields.io/badge/line%20coverage-83%25-green)](#roadmap)
 
 An AI-driven **Site Reliability Engineering** platform built in Rust. It uses an
 **orchestrator + specialized sub-agents** pattern to automate incident
@@ -105,6 +105,8 @@ flowchart TB
         TRIAGE["TriageAgent"]
         LOGS["LogsAgent"]
         METRICS["MetricsAgent"]
+        TRACE["TraceAgent"]
+        INFRA["InfraAgent"]
         CUSTOM["Custom Agents<br/>(sre-agent-sdk)"]
     end
 
@@ -132,11 +134,13 @@ flowchart TB
     CHAT --> ORCH
 
     ORCH --> ROUTER
-    ROUTER --> TRIAGE & LOGS & METRICS & CUSTOM
+    ROUTER --> TRIAGE & LOGS & METRICS & TRACE & INFRA & CUSTOM
     LOGS --> LA
+    INFRA --> LA
     METRICS --> AI
+    TRACE --> AI
 
-    TRIAGE & LOGS & METRICS & CUSTOM --> AGG
+    TRIAGE & LOGS & METRICS & TRACE & INFRA & CUSTOM --> AGG
     AGG --> REASON
     REASON --> KNOW
     REASON --> GATE --> NOTIFY
@@ -189,7 +193,7 @@ Postgres, or an LLM.
 | **`sre-common`** | Shared types: `AgentMessage` envelope, `AlertInfo`, `Finding`, `InvestigationReport`, `PlatformConfig`, remediation types, error hierarchy. |
 | **`sre-azure`** | Azure API layer: `TokenProvider` auth trait, `AzureQueryClient` (KQL over REST), `AzureAlertsClient` (Common Alert Schema), parameterized KQL templates. |
 | **`sre-store`** | Persistence: `WorkflowStore` + `EventLog` traits with a `PgStore` (PostgreSQL via `sqlx`) backend and a migration-bootstrapped audit trail. |
-| **`sre-agents`** | `SreAgent` trait + built-in `TriageAgent`, `LogsAgent`, `MetricsAgent`. |
+| **`sre-agents`** | `SreAgent` trait + the five built-in investigation agents (`TriageAgent`, `LogsAgent`, `MetricsAgent`, `TraceAgent`, `InfraAgent`) and the propose-only `RemediationAgent`. |
 | **`sre-agent-sdk`** | Stable, lightweight surface for building **custom** investigation agents (depends only on `sre-common`) — see ADR-019. |
 | **`sre-orchestrator`** | Investigation engine: workflow state machine, `AgentRouter`, `FindingAggregator`, per-investigation reply channels, timeouts. |
 | **`sre-intelligence`** | Phase 3: `ReasoningEngine` (Claude), `KnowledgeStore` (Qdrant RAG of past incidents), and a `LearningLoop` that feeds outcomes back in. |
@@ -203,12 +207,21 @@ Postgres, or an LLM.
 
 ## Quick Start
 
+Requirements: Rust 1.94 or newer, `protoc` (for the gRPC API), and Docker. The
+test suite starts its own Postgres and NATS containers; `serve` and
+`investigate` need a running Postgres, which `docker-compose.yml` provides on
+`localhost:5432` with the credentials in `config/default.toml`. If 5432 is taken,
+start it with `SRE_PG_PORT=55432` and set `SRE__STORE__DATABASE_URL` to match.
+
 ```bash
 # Build the whole workspace
 cargo build --workspace
 
 # Run the test suite (unit + integration; Docker required for store tests)
 cargo test --workspace
+
+# Local Postgres for the commands below
+docker compose up -d --wait
 
 # Lint & format
 cargo clippy --workspace
@@ -243,8 +256,19 @@ agent_timeout_secs            = 30
 max_concurrent_investigations = 10
 ```
 
-Azure authentication uses `DefaultAzureCredential` (Managed Identity in Azure,
-Azure CLI locally). LLM reasoning activates when `ANTHROPIC_API_KEY` is set and
+With `auth_mode = "mock"` (as set in `config/default.toml`; a config that omits
+the key gets `"azure"`) the Azure clients present a fixed dummy
+token (`MockTokenProvider`), so no real Azure data is read. With
+`auth_mode = "azure"`, `AzureCredentialProvider` (`crates/azure/src/auth.rs`)
+currently returns a pre-issued bearer token read from the `AZURE_ACCESS_TOKEN`
+environment variable, unchanged for every scope and never refreshed. That is
+enough for manual testing against one API audience (for example a token from
+`az account get-access-token --resource https://api.loganalytics.io`), not for a
+deployment. Wiring `azure_identity` (`DefaultAzureCredential`: managed identity in
+Azure, Azure CLI locally) with per-scope tokens and refresh is a listed
+follow-up and a go-live blocker in [docs/PROGRESS.md](docs/PROGRESS.md).
+
+LLM reasoning activates when `ANTHROPIC_API_KEY` is set and
 the reasoning engine is enabled in config; otherwise a deterministic mock engine
 is used.
 
@@ -258,10 +282,12 @@ is used.
 | **Phase 2** | Gated remediation, approval gates, ChatOps, notifications, NATS ingest | ✅ Functionally complete (mock end-to-end) |
 | **Phase 3** | LLM reasoning, knowledge store + learning loop, progressive-trust auto-remediation, Agent SDK, multi-workspace | ✅ Code-complete — exit criteria evaluation-gated |
 
-Workspace line coverage: **85%** (`cargo llvm-cov`).
+Workspace line coverage: **83%** (82.89% of 8,823 lines; `cargo llvm-cov --workspace`
+with the Docker-backed suites, measured 2026-10-12). The badge is static, so
+re-measure and update it when coverage moves.
 
 See [docs/PROGRESS.md](docs/PROGRESS.md) for detailed tracking and
-[docs/adr/](docs/adr/) for the 21 architecture decision records that document
+[docs/adr/](docs/adr/) for the 22 architecture decision records that document
 the platform's design.
 
 ---

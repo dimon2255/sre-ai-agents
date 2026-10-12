@@ -8,10 +8,12 @@ deploy-time infra step (documented here, not yet applied).
 
 ## Context
 
-Phase 1 and 2a/2b are **read-only** against Azure: every query uses one
-user-assigned managed identity attached to the Container App (called
-`sre-agents-identity` throughout this ADR), which carries read scopes (Log
-Analytics Reader, Monitoring Reader). Phase 2c introduces the first *write* path — the
+Phase 1 and 2a/2b are **read-only** against Azure. The deployment attaches one
+user-assigned managed identity to the Container App (called
+`sre-agents-identity` throughout this ADR) with read scopes (Log Analytics
+Reader, Monitoring Reader), and the read path is designed to authenticate as it.
+(Until `AzureCredentialProvider` is wired to `azure_identity`, the code uses a
+pre-issued token from `AZURE_ACCESS_TOKEN`; see ADR-022.) Phase 2c introduces the first *write* path — the
 `AzureArmClient` issues PATCH/POST/DELETE against ARM to execute approved
 remediations.
 
