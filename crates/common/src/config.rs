@@ -633,7 +633,7 @@ fn default_otlp_endpoint() -> String {
     // Empty by default: let the OTel SDK read `OTEL_EXPORTER_OTLP_ENDPOINT`
     // from the environment.
     //
-    // - In ACA staging/prod (acaenv-sre-agents-staging), the env-managed OTel
+    // - In Azure Container Apps with the env-managed OTel agent enabled, the
     //   agent auto-injects the env var pointing at its cluster-local
     //   service (e.g., `http://k8se-otel.k8se-apps.svc.cluster.local:4317`).
     //   Hardcoding `http://localhost:4317` here would override that and

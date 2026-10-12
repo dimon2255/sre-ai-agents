@@ -153,8 +153,8 @@ fn load_config(path: &str) -> anyhow::Result<PlatformConfig> {
 
 /// Initialize an OpenTelemetry tracer provider with the OTLP gRPC exporter.
 ///
-/// The ACA env-managed OpenTelemetry agent on `acaenv-sre-agents-staging`
-/// auto-injects `OTEL_EXPORTER_OTLP_ENDPOINT` into each pod (currently
+/// An Azure Container Apps environment with the env-managed OpenTelemetry
+/// agent enabled auto-injects `OTEL_EXPORTER_OTLP_ENDPOINT` into each pod (currently
 /// `http://k8se-otel.k8se-apps.svc.cluster.local:4317`). When the app
 /// config leaves `otlp_endpoint` empty (the default), we let the OTel SDK
 /// read that env var. If the app config sets a non-empty value, it takes
@@ -237,10 +237,8 @@ fn init_meter_provider(
 
 /// Emit one synthetic span at startup and force-flush the exporter.
 ///
-/// Same startup check as the `probeExporter` pattern common in Go OTel
-/// services. Without this, silent export
-/// failures — e.g. wrong endpoint, unreachable agent — only surface
-/// hours later as "no spans in App Insights."
+/// Without this, silent export failures — e.g. wrong endpoint, unreachable
+/// agent — only surface hours later as "no spans in App Insights."
 fn probe_otel_exporter(provider: &SdkTracerProvider) {
     use opentelemetry::trace::{Tracer, TracerProvider as _};
 

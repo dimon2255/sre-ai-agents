@@ -39,18 +39,18 @@ specifies is implemented in *process memory*, shared only *within* a single repl
   already admits (lines 111-114).
 
 The deployed topology is N stateless replicas on ACA
-(`revision_mode = "Single"`, `min_replicas = 1`, `max_replicas = 5` —
-`infra/staging/main.tf:65,100-101`) with **no NATS provisioned**
-(`config/default.toml` nats section commented out; `infra/staging/main.tf:105-109`
-describes NATS only as "the forward step"). So work is fanned out by the ACA HTTP load
+(`revision_mode = "Single"`, `min_replicas = 1`, `max_replicas = 5` in the
+staging Terraform, which is environment-specific and not published in this
+repository) with **no NATS provisioned** (`config/default.toml` nats section
+commented out; the staging Terraform describes NATS only as "the forward step"). So work is fanned out by the ACA HTTP load
 balancer, and nothing reconciles state across replicas except the single `alert_id`
 constraint.
 
 ### Why this is latent today — and why that is the reason to act now
 
 Remediation is disabled by default and **ADR-011 (identity separation) has not landed**
-— the deployed app runs on a single broad `sre-agents-identity`
-(`infra/staging/main.tf:79-82`), and ADR-011 §Consequences blocks remediation until a
+— the deployed app runs on a single broad `sre-agents-identity` (the
+user-assigned identity attached to the staging Container App), and ADR-011 §Consequences blocks remediation until a
 scoped `id-sre-agents-remediation` identity exists. So none of the gaps below are live
 in production *yet*. That window — remediation written but not switched on — is exactly
 when the coordination layer should be made durable, before a future "enable remediation"

@@ -8,9 +8,10 @@ deploy-time infra step (documented here, not yet applied).
 
 ## Context
 
-Phase 1 and 2a/2b are **read-only** against Azure: every query uses the
-`sre-agents-identity` managed identity, which carries read scopes (Log Analytics
-Reader, Monitoring Reader). Phase 2c introduces the first *write* path — the
+Phase 1 and 2a/2b are **read-only** against Azure: every query uses one
+user-assigned managed identity attached to the Container App (called
+`sre-agents-identity` throughout this ADR), which carries read scopes (Log
+Analytics Reader, Monitoring Reader). Phase 2c introduces the first *write* path — the
 `AzureArmClient` issues PATCH/POST/DELETE against ARM to execute approved
 remediations.
 
@@ -118,4 +119,4 @@ work is Terraform + a credential swap, not a refactor.
 
 - [ADR-009: Remediation Safety Model](009-remediation-safety-model.md) — §6 forward-references this ADR; §1 the RiskLevel placement.
 - [ADR-004: Read-Only Phase 1 Safety Model](004-read-only-phase1-safety-model.md) — the read-only precursor.
-- [ADR-007: CI/CD, Containerization, ACA Deployment](007-cicd-containerization-aca-deployment.md) — where `sre-agents-identity` is wired.
+- [ADR-007: CI/CD, Containerization, ACA Deployment](007-cicd-containerization-aca-deployment.md) — the Container Apps deployment the read identity is attached to.

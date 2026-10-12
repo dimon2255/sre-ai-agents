@@ -117,18 +117,18 @@
 
 | # | Component | Status | Notes |
 |---|-----------|--------|-------|
-| 1 | Staging deployment (Terraform + ACA) | Done | `infra/staging/`, release workflow, OIDC auth, deployed to `aca-sre-agents-demo` |
+| 1 | Staging deployment (Terraform + ACA) | Done | Deployed to a staging Azure Container Apps app (`aca-sre-agents-demo`) by a Terraform stack and a release workflow that authenticates to Azure with OIDC workload identity federation. Both are environment-specific and are not published in this repository. |
 | 2 | OpenTelemetry instrumentation | Done | 15 spans across critical path, OTLP HTTP exporter, config-driven (`SRE__OBSERVABILITY__ENABLED`) |
-| 3 | PostgreSQL migration (replace SQLite) | Done | Hard cut-over shipped 2026-04-19: `sqlite` feature removed, `PgStore` replaces `SqliteStore` across orchestrator/webhook/tests. Integration tests use `testcontainers-modules` (postgres:16-alpine pinned). Smoke test in `docker.yml` runs against a Postgres sidecar on a shared docker network. Staging DB provisioned via `azurerm_postgresql_flexible_server_database.app`; app role created out-of-band via `infra/staging/create-app-user.sql`. Password auth in ACA secret; MI follow-up tied to ADR-011. **Schema modernization (TEXT→UUID/JSONB/TIMESTAMPTZ, f64 precision fix, composite index) scheduled as a follow-up corrective migration — see ADR-012.** |
+| 3 | PostgreSQL migration (replace SQLite) | Done | Hard cut-over shipped 2026-04-19: `sqlite` feature removed, `PgStore` replaces `SqliteStore` across orchestrator/webhook/tests. Integration tests use `testcontainers-modules` (postgres:16-alpine pinned). Smoke test in `docker.yml` runs against a Postgres sidecar on a shared docker network. Staging DB provisioned via `azurerm_postgresql_flexible_server_database.app`; least-privilege app role created out-of-band by a one-time SQL script kept with the (unpublished) staging Terraform. Password auth in ACA secret; MI follow-up tied to ADR-011. **Schema modernization (TEXT→UUID/JSONB/TIMESTAMPTZ, f64 precision fix, composite index) scheduled as a follow-up corrective migration — see ADR-012.** |
 | 4 | TraceAgent (distributed traces) | Done | `crates/agents/src/trace.rs` — App Insights `AppRequests` ⋈ `AppDependencies` correlated by `OperationId`. Two KQL templates (`trace_failure_correlation`, `trace_latency_breakdown`): localizes which downstream hop owns end-to-end failures and where latency is actually spent. New `AgentType::Trace` + `AnalysisTaskType::TraceCorrelation`. Triage routes Trace when `operation_ids` are present or on a Metric signal. |
 | 5 | InfraAgent (Activity Log, Resource Health) | Done | `crates/agents/src/infra.rs` — Azure Activity Log via the Log Analytics `AzureActivity` table (KQL templates, ADR-005). Two templates (`recent_deployments`, `resource_health`): "what changed?" (administrative writes/deploys/restarts → `DeploymentCorrelation`) and Resource Health transitions (Available→Degraded/Unavailable → new `FindingCategory::ServiceHealth`). New `AgentType::Infra` + `AnalysisTaskType::InfraChanges`. InfraAgent always runs — change correlation is a primary RCA signal. |
-| 6 | Webhook authentication (ADR-008) | Done | ADR-008 Accepted 2026-04-21. HMAC-SHA256 middleware (`src/middleware/hmac.rs`) wired on `/api/v1/alerts/azure` only, `{timestamp}.{body}` signed payload with 5-min skew window, constant-time compare via `subtle::ConstantTimeEq`. Config: `WebhookConfig.hmac_secret` (required in staging) + `hmac_skew_seconds` (default 300). 7 integration + 5 unit tests green, clippy `-D warnings` clean. Terraform wired: new `webhook_hmac_secret` var with ≥32-char validation, ACA secret `webhook-hmac-secret`, env `SRE__WEBHOOK__HMAC_SECRET`. Release workflow reads `secrets.SRE_WEBHOOK_HMAC_SECRET` — operator must add this to the GitHub `staging` environment before the next release run. AAD bearer deferred to Phase 2b. |
+| 6 | Webhook authentication (ADR-008) | Done | ADR-008 Accepted 2026-04-21. HMAC-SHA256 middleware (`src/middleware/hmac.rs`) wired on `/api/v1/alerts/azure` only, `{timestamp}.{body}` signed payload with 5-min skew window, constant-time compare via `subtle::ConstantTimeEq`. Config: `WebhookConfig.hmac_secret` (required in staging) + `hmac_skew_seconds` (default 300). 7 integration + 5 unit tests green, clippy `-D warnings` clean. Terraform wired: new `webhook_hmac_secret` var with ≥32-char validation, ACA secret `webhook-hmac-secret`, env `SRE__WEBHOOK__HMAC_SECRET`. The release pipeline supplies the value from its secret store (`SRE_WEBHOOK_HMAC_SECRET`). AAD bearer deferred to Phase 2b. |
 | 7 | Remediation safety model (ADR-009 draft) | Draft | ADR-009 in review (2026-04-22) — `docs/adr/009-remediation-safety-model.md`. Threat model (STRIDE + MITRE ATT&CK), RiskLevel enum (ReadOnly/LowRisk/HighRisk/Destructive), auto-approve policy, guardrails, rollback contract, audit schema additions, forward-ref to ADR-011 for identity separation. Implementation is Phase 2c. |
 | 8 | Load test baseline | Not Started | Target: 50 concurrent investigations, P99 < 5s |
 
 #### Phase 2a Exit Criteria
 
-- [x] Terraform deploys ACA app to staging via GitHub Actions release workflow
+- [x] Terraform deploys ACA app to staging via a release workflow (environment-specific, not published here)
 - [x] OpenTelemetry traces flow across orchestrator and all agents
 - [x] PostgreSQL stores full audit history (replaces SQLite)
 - [x] TraceAgent correlates distributed traces and identifies dependency failures
@@ -185,8 +185,8 @@
 - Auto-approve only at confidence >= 0.95 and RiskLevel::LowRisk
 - `SreDataSource` trait introduced for multi-provider abstraction
 - Approval gate as separate crate (`sre-gates`) — trust boundary separation
-- `sre-agents-identity` acceptable for Phase 2a/2b; scoped identity required before Phase 2c (ADR-011)
-- Single OIDC federated credential per GitHub environment
+- A single read-scoped managed identity (`sre-agents-identity`) is acceptable for Phase 2a/2b; a separate scoped identity is required before Phase 2c (ADR-011)
+- Deployments authenticate to Azure with OIDC workload identity federation, one federated credential per deployment environment, so CI holds no long-lived Azure secret
 - Postgres migration is a hard cut-over: `sqlite` feature dropped from `crates/store/Cargo.toml`, compiler enforces removal of every SQLite call site. No runtime backend selection, no feature-flag hedge
 - Postgres auth in Phase 2a uses password-in-ACA-secret; Managed Identity token auth deferred to ADR-011 follow-up
 - Store tests run against real Postgres via `testcontainers-rs` (both local and CI) — no SQLite in-memory shortcut
@@ -301,7 +301,7 @@ cargo llvm-cov --workspace --ignore-run-fail --summary-only
 | Agent platform down during incident | Critical | 99.9% availability SLO, graceful degradation, circuit breaking |
 | Token/credential management | High | Managed Identity in Azure, config-driven auth mode (mock for dev) |
 | Unauthenticated webhook endpoint | Medium | Phase 1: ACA ingress only. Phase 2: ADR-008 (shared secret / Azure AD) |
-| Ephemeral audit trail on staging | ~~High~~ Resolved | **Resolved 2026-04-19**: Postgres cut-over shipped (Phase 2a task #3). App now writes to `sre_agents` DB on `psql-sre-agents-staging`; `SRE__STORE__DATABASE_URL` composed from `SRE_AGENTS_DB_PASSWORD` GitHub secret. Audit history survives container restarts. |
+| Ephemeral audit trail on staging | ~~High~~ Resolved | **Resolved 2026-04-19**: Postgres cut-over shipped (Phase 2a task #3). App now writes to a dedicated `sre_agents` database on the staging PostgreSQL Flexible Server; `SRE__STORE__DATABASE_URL` is composed at deploy time from a pipeline secret. Audit history survives container restarts. |
 
 ---
 
@@ -326,7 +326,7 @@ several silent-degradation and reliability defects required fixing first. Branch
 | 6 | High | Liveness heartbeat was a free-running timer → a dead/wedged dispatch loop stayed "healthy" forever. | Heartbeat owned by the dispatch loop (alert + interval tick); a dead loop goes stale → ACA restarts. |
 | 7 | High | Notifier HTTP clients had no timeout and run while holding the investigation permit (semaphore wedge); Slack/Teams secret leaked into logs via `reqwest::Error` URL. | 10s timeout on all 3 notifiers; `without_url()` strips the secret-bearing URL. |
 | 8 | High | DB pool: 5 conns (< max_concurrent 10), no statement/idle/acquire timeouts → a failover-stuck query wedged all slots incl. the readiness ping. | Pool 16 conns + `statement_timeout`/`idle_in_transaction`/`acquire_timeout`/`max_lifetime`. |
-| 9 | High | CI/CD: `${{ github.event.release.tag_name }}` interpolated into `run:` blocks holding Azure OIDC creds (shell injection); no `permissions:` blocks; TF secrets on argv. | Untrusted inputs via env + charset validation; `permissions: contents: read`; secrets via `TF_VAR_*`; Dependabot added. |
+| 9 | High | CI/CD (release workflow, not published here): `${{ github.event.release.tag_name }}` interpolated into `run:` blocks holding Azure OIDC creds (shell injection); no `permissions:` blocks; TF secrets on argv. | Untrusted inputs via env + charset validation; `permissions: contents: read`; secrets via `TF_VAR_*`; Dependabot added. |
 | 10 | Medium | NaN/out-of-range confidence bypassed the auto-approve floor and trust cooldown (`NaN < x` is false). | Gate rejects non-finite / out-of-[0,1] confidence → routes to human. |
 | 11 | Medium | Azure "Resolved" notifications ran full investigations; stuck-state + report-write failures swallowed silently. | Ignore `monitorCondition=Resolved`; persist `Failed` on the unexpected-payload path; log terminal-state + report-write failures. |
 
