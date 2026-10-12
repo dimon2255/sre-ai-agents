@@ -32,7 +32,7 @@
 | Config-driven auth mode | Done | `azure.auth_mode = "mock" \| "azure"` in config |
 | OpenTelemetry instrumentation | Deferred | Moved to Phase 2 |
 | CI/CD pipeline (GitHub Actions) | Done | `.github/workflows/` — lint, test, build, security audit, docker smoke |
-| Multi-stage Dockerfile | Done | `Dockerfile` — rust:1.86 builder + debian-slim runtime, non-root user |
+| Multi-stage Dockerfile | Done | `Dockerfile` — rust:1.99-bookworm builder + debian-slim runtime, non-root user |
 | Health probes (/startupz, /healthz, /readyz) | Done | 3-tier: startup gate, heartbeat liveness (no I/O), readiness (channel + semaphore + heartbeat + SQLite) |
 | Release profile optimization | Done | LTO, strip, codegen-units=1 in Cargo.toml |
 | Serialization roundtrip tests | Done | All AgentPayload variants validated, InboundMessage boundary documented for Phase 2 NATS |
@@ -234,7 +234,7 @@
 
 ## Test Coverage
 
-**Status**: 80% target met (2026-06-20) — **85.24% workspace line coverage** (measured by `cargo llvm-cov`, all files included).
+**Status**: 80% target met (2026-06-20) — **85.24% workspace line coverage** (measured by `cargo llvm-cov`, all files included); re-measured 2026-10-12 at **82.89%** (the README badge).
 
 ### Measuring
 

@@ -20,14 +20,14 @@ Key questions:
 
 Three independent workflows running on push and PR to main:
 
-- **ci.yml**: Lint (rustfmt + clippy with `-D warnings`), test (`cargo test --workspace`), and release build. Lint and test run in parallel; build depends on both passing. Uses `dtolnay/rust-toolchain` for pinned Rust and `actions/cache` for cargo registry and target directory.
+- **ci.yml**: Lint (rustfmt + clippy with `-D warnings`), test (`cargo test --workspace`), and release build. Lint and test run in parallel; build depends on both passing. Uses `dtolnay/rust-toolchain@stable` for the toolchain and `actions/cache` for cargo registry and target directory.
 - **security.yml**: `cargo-audit` dependency scanning on push and weekly Monday cron (catches new RustSec advisories between pushes).
 - **docker.yml**: Docker image build and smoke test — build the image, start the container, verify `/healthz` returns 200.
 
 ### 2. Multi-Stage Dockerfile
 
 Two-stage build:
-- **Builder**: `rust:1.86-bookworm` — full toolchain, compiles release binary.
+- **Builder**: `rust:1.99-bookworm` (1.86 when this ADR was written) — full toolchain, compiles release binary.
 - **Runtime**: `debian:bookworm-slim` — minimal image (~80-100MB) with only `ca-certificates` for outbound TLS to Azure APIs. Non-root user (`sre`). No inbound TLS configuration.
 
 Release profile optimizations: `lto = "thin"`, `strip = true`, `codegen-units = 1` for smaller binary (~10-15MB vs ~30MB default).

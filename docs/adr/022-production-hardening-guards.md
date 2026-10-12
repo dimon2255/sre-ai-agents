@@ -21,7 +21,7 @@ refusing to start:
    token; every KQL query is meaningless and (with remediation) ARM writes route
    to a mock — a silent no-op that still reports "healthy".
 3. **Remediation against real Azure is unsafe today.** The write path reuses the
-   read managed identity (ADR-011 identity separation not implemented) and the
+   read credential (ADR-011 identity separation not implemented) and the
    approval gate's rate-limit / mutual-exclusion state is per-replica (ADR-021
    durable coordination not implemented). A single `SRE__REMEDIATION__ENABLED=true`
    flip enabled all of this with no compensating guard.

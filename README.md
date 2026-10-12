@@ -227,7 +227,8 @@ docker compose up -d --wait
 cargo clippy --workspace
 cargo fmt --all -- --check
 
-# Manual investigation (uses mock auth unless Azure credentials are configured)
+# Manual investigation. Auth follows `azure.auth_mode` ("mock" in config/default.toml);
+# real queries need auth_mode = "azure" plus AZURE_ACCESS_TOKEN.
 cargo run -- investigate --resource my-app --severity Sev1
 
 # Start the webhook server (Azure Alert ingestion, port 8080)
@@ -268,9 +269,9 @@ deployment. Wiring `azure_identity` (`DefaultAzureCredential`: managed identity 
 Azure, Azure CLI locally) with per-scope tokens and refresh is a listed
 follow-up and a go-live blocker in [docs/PROGRESS.md](docs/PROGRESS.md).
 
-LLM reasoning activates when `ANTHROPIC_API_KEY` is set and
-the reasoning engine is enabled in config; otherwise a deterministic mock engine
-is used.
+LLM reasoning activates when the reasoning engine is enabled in config and
+`ANTHROPIC_API_KEY` is set. Enabled without a key, a deterministic mock engine is
+used; disabled (the default), no reasoning engine runs at all.
 
 ---
 

@@ -850,7 +850,7 @@ fn enforce_auth_mode_policy(config: &PlatformConfig) -> anyhow::Result<()> {
 
 /// Refuse to enable remediation against real Azure until identity separation
 /// (ADR-011) and durable multi-replica coordination (ADR-021) land. The write
-/// path currently reuses the read managed identity and the approval gate's
+/// path currently reuses the read credential and the approval gate's
 /// rate-limit / mutual-exclusion state is per-replica, so auto-remediation on
 /// real Azure is unsafe. Fail closed rather than trust a config comment.
 fn enforce_remediation_safety_policy(config: &PlatformConfig) -> anyhow::Result<()> {
@@ -863,7 +863,7 @@ fn enforce_remediation_safety_policy(config: &PlatformConfig) -> anyhow::Result<
     }
     anyhow::bail!(
         "remediation.enabled=true with auth_mode='{}' is blocked. The remediation \
-         write path reuses the read managed identity (ADR-011 identity separation \
+         write path reuses the read credential (ADR-011 identity separation \
          not yet implemented) and the approval gate's rate limits and resource \
          locks are per-replica (ADR-021 durable coordination not yet implemented), \
          so auto-remediation against real Azure is unsafe. Keep \

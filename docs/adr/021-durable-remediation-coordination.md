@@ -49,8 +49,9 @@ constraint.
 ### Why this is latent today — and why that is the reason to act now
 
 Remediation is disabled by default and **ADR-011 (identity separation) has not landed**
-— the deployed app runs on a single broad `sre-agents-identity` (the
-user-assigned identity attached to the staging Container App), and ADR-011 §Consequences blocks remediation until a
+— the deployment attaches a single broad `sre-agents-identity` to the Container App
+and the code hands the write client the same credential as the read path (today the
+`AZURE_ACCESS_TOKEN` provider, not the managed identity), and ADR-011 §Consequences blocks remediation until a
 scoped `id-sre-agents-remediation` identity exists. So none of the gaps below are live
 in production *yet*. That window — remediation written but not switched on — is exactly
 when the coordination layer should be made durable, before a future "enable remediation"
