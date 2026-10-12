@@ -29,14 +29,19 @@ updates:
     # falls back to individual PRs.
     open-pull-requests-limit: 5
     groups:
+      # The OpenTelemetry crates share internal types, so a bump of one without
+      # the others fails to compile (four separate 0.32 -> 0.33 PRs did exactly
+      # that on 2026-10-12). They move together, whatever the bump size.
+      opentelemetry:
+        patterns: ["opentelemetry*", "tracing-opentelemetry"]
       # Minor and patch bumps are the routine case and are safe to batch: they
       # are semver-compatible, so the group resolves as one lockfile update.
       cargo-minor-patch:
         update-types: ["minor", "patch"]
       # Major bumps stay in their own PR. They break APIs (async-nats 0.48->0.50
-      # needed a manifest edit; reqwest 0.13 is currently blocked because
-      # opentelemetry-otlp 0.32 pins 0.12) and need per-crate review, which a
-      # batched PR would hide.
+      # needed a manifest edit; reqwest 0.13 needs the three workspace crates
+      # that still pin 0.12 to move together) and need per-crate review, which
+      # a batched PR would hide.
 
   - package-ecosystem: "docker"
     directory: "/"
