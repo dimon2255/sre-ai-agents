@@ -123,12 +123,12 @@ database_url = "postgres://postgres:password@localhost:5432/sre_agents"
 # LLM reasoning engine (Phase 3, ADR-015). Synthesizes a root-cause analysis
 # after each investigation, enriching the report summary. Disabled by default.
 # When enabled with provider="claude", set ANTHROPIC_API_KEY (otherwise it
-# falls back to the deterministic mock engine). Defaults to claude-opus-4-8.
+# falls back to the deterministic mock engine). Defaults to claude-opus-5-5.
 # [reasoning]
 # enabled = false
 # provider = "claude"               # claude | mock
-# model = "claude-opus-4-8"
-# max_tokens = 2048
+# model = "claude-opus-5-5"
+# max_tokens = 4096               # thinking counts toward this budget on Opus 5.5
 # api_key_env = "ANTHROPIC_API_KEY"
 
 # Knowledge store + learning loop (Phase 3, ADR-016). A vector memory of past

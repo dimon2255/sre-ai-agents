@@ -110,7 +110,7 @@ mod tests {
         ReasoningConfig {
             enabled,
             provider: provider.to_string(),
-            model: "claude-opus-4-8".to_string(),
+            model: "claude-opus-5-5".to_string(),
             max_tokens: 1024,
             api_key_env: api_key_env.to_string(),
             base_url: None,

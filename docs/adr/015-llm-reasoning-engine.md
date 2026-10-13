@@ -67,7 +67,7 @@ reproducible. Used in CI, in dev without an API key, and as the runtime fallback
 
 A raw-HTTP binding to the Anthropic **Messages API** (`POST /v1/messages`,
 `x-api-key` + `anthropic-version: 2023-06-01`), via `reqwest` — there is no Rust
-SDK. Defaults to **`claude-opus-4-8`**. A system prompt frames Claude as a senior
+SDK. Defaults to **`claude-opus-5-5`** (since 2026-10-13; `claude-opus-4-8` before, which the three recorded eval runs used). A system prompt frames Claude as a senior
 SRE and constrains the response to a JSON RCA schema; the response's text block
 is parsed into `ReasoningOutput` (tolerating markdown fences and non-JSON output
 via a fallback). The request-building and response-parsing are pure functions,
