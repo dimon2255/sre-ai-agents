@@ -205,7 +205,7 @@
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| ReasoningEngine (LLM-powered RCA synthesis) | Done | New `sre-intelligence` crate (ADR-015). `ReasoningEngine` trait + `MockReasoningEngine` (deterministic, rule-based; CI/dev) + `ClaudeReasoningEngine` (real Anthropic Messages API via raw HTTP — no Rust SDK — default `claude-opus-4-8`). Selected by config like `auth_mode`: Claude when `ANTHROPIC_API_KEY` set, else mock. Orchestrator enriches the report summary with the synthesized RCA (root cause, confidence, factors, actions, narrative) — best-effort, opt-in (`[reasoning]`), never blocks an investigation. `related_incidents` seam ready for RAG. |
+| ReasoningEngine (LLM-powered RCA synthesis) | Done | New `sre-intelligence` crate (ADR-015). `ReasoningEngine` trait + `MockReasoningEngine` (deterministic, rule-based; CI/dev) + `ClaudeReasoningEngine` (real Anthropic Messages API via raw HTTP — no Rust SDK — default `claude-opus-5-5` since 2026-10-13, `claude-opus-4-8` before). Selected by config like `auth_mode`: Claude when `ANTHROPIC_API_KEY` set, else mock. Orchestrator enriches the report summary with the synthesized RCA (root cause, confidence, factors, actions, narrative) — best-effort, opt-in (`[reasoning]`), never blocks an investigation. `related_incidents` seam ready for RAG. |
 | KnowledgeStore (Qdrant vector DB, past incidents) | Done | `sre-intelligence` (ADR-016). `KnowledgeStore` trait + `MockKnowledgeStore` (in-memory cosine, deterministic; CI/dev default) + `QdrantKnowledgeStore` (raw-HTTP REST binding; pure body builders + response parser unit-tested). `Embedder` trait + `HashEmbedder` (FNV-1a feature-hashing, offline lexical embedding; semantic embedder is a drop-in). Selected by config like `auth_mode`. **Fills the ADR-015 `related_incidents` RAG seam**: orchestrator retrieves `top_k` similar past incidents before reasoning and feeds their grounding lines to the engine. Best-effort, opt-in (`[knowledge]`). |
 | LearningLoop (outcome tracking, confidence adjustment) | Done | `sre-intelligence::learning` (ADR-016). `OutcomeSignals::classify()` implements the diagram's decision tree as a pure fn (no-remediation→Inconclusive; resolved-in-window→Success; refired-in-hour→Failure; else Success). `LearningLoop::record_outcome` stamps the outcome, updates a per-category `ConfidenceTracker` (the success-rate signal the progressive-trust model will consume), and embeds the incident into the knowledge store. Clock-free (callers stamp timestamps) for deterministic tests. Wired into `investigate()` (read-only path → Inconclusive); real post-remediation outcomes land with auto-remediation. |
 | AutoRemediationEngine (pre-approved playbooks) | Done | ADR-017. The Phase 2c executor gains an optional `TrustModel`: trusted remediation *categories* (the "pre-approved playbooks") auto-execute below the fixed 0.95 floor. Auto-remediation never bypasses the gate — it only lowers the LowRisk confidence bar (within `[0.85, 0.95]`); risk routing, kill switch, blast-radius, rate limits, locks, and the HighRisk/Destructive human requirement are unchanged. Opt-in via `remediation.progressive_trust`. |
@@ -424,6 +424,7 @@ escalation, remediation), not only whether each component behaves as coded.
 | 14-scenario golden set | Done | Hand-authored fixtures, one labeler. Contrastive pairs. |
 | CI ratchet gate (`baseline.json`) | Done | Verified to fail on an injected regression. Runs under `cargo test --workspace`. |
 | Opt-in LLM-judge tier (`--engine claude`) | Done (3 runs) | Real API, 84 calls, 0 failures. Claude RCA judged correct 10 of 14 (71%) in every run, same 10 each time. `--summarize-runs` combines runs. |
+| RCA default moved to `claude-opus-5-5` (2026-10-13) | Done; one-scenario smoke only | `reasoning.model` default was `claude-opus-4-8`, the model the three recorded runs used. `max_tokens` default raised from 2048 to 4096 because Opus 5.5 thinks before it answers and the thinking counts toward the budget, and the engine HTTP timeout from 60 to 180 seconds; the request shape is otherwise unchanged. A one-scenario live run (GS-01) on the new default was judged correct with 0 failed calls; the full 14-scenario run has not been repeated. A run on the new default must go to a separate `--out` directory, since `--summarize-runs` refuses to mix models. |
 
 ### Baseline (rule-based pipeline)
 
@@ -455,7 +456,8 @@ they still come from the rule-based findings.
 - A finding counts as a detection only at Medium severity or above, so status
   readouts (the Low latency summary emitted on every run) are not claims.
 - The LLM RCA defaults to the platform's configured `reasoning.model`
-  (`claude-opus-4-8`) so the eval measures what production would run; the judge
+  (`claude-opus-4-8` at the time of the three runs; `claude-opus-5-5` since
+  2026-10-13) so the eval measures what production would run; the judge
   defaults to `claude-opus-5-5` with structured output and server-side
   refusal fallback.
 

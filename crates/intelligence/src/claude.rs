@@ -11,7 +11,7 @@ const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 /// Real reasoning engine backed by the Anthropic Messages API
 /// (`POST /v1/messages`). Rust has no official Anthropic SDK, so this is a raw
 /// HTTP binding via `reqwest`. Activated by config + `ANTHROPIC_API_KEY`;
-/// defaults to `claude-opus-4-8`.
+/// defaults to `claude-opus-5-5`.
 pub struct ClaudeReasoningEngine {
     http: reqwest::Client,
     api_key: String,
@@ -24,7 +24,9 @@ impl ClaudeReasoningEngine {
     pub fn new(api_key: String, model: String, max_tokens: u32, base_url: Option<String>) -> Self {
         Self {
             http: sre_common::http::client_builder()
-                .timeout(std::time::Duration::from_secs(60))
+                // Opus 5.5 thinks before it answers, so a synthesis can run well past the
+                // 60 seconds that fitted Opus 4.8; the eval judge already allows 300.
+                .timeout(std::time::Duration::from_secs(180))
                 .build()
                 .expect("failed to build HTTP client"),
             api_key,
@@ -162,8 +164,8 @@ impl ReasoningEngine for ClaudeReasoningEngine {
             .await
             .map_err(|e| ReasoningError::Parse(e.to_string()))?;
 
-        // On Opus 4.8 the response may include an (empty) thinking block before
-        // the text block; take the first text block.
+        // Opus 5.5 thinks before it answers, so the response begins with a thinking
+        // block (empty text by default) before the text block; take the first text block.
         let text = body
             .content
             .iter()
@@ -222,7 +224,7 @@ mod tests {
     fn engine() -> ClaudeReasoningEngine {
         ClaudeReasoningEngine::new(
             "test-key".to_string(),
-            "claude-opus-4-8".to_string(),
+            "claude-opus-5-5".to_string(),
             2048,
             None,
         )
@@ -254,7 +256,7 @@ mod tests {
     #[test]
     fn request_body_has_model_system_and_user_message() {
         let body = engine().build_request_body(&input());
-        assert_eq!(body["model"], "claude-opus-4-8");
+        assert_eq!(body["model"], "claude-opus-5-5");
         assert_eq!(body["max_tokens"], 2048);
         assert!(body["system"].as_str().unwrap().contains("root-cause"));
         let content = body["messages"][0]["content"].as_str().unwrap();

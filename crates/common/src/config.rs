@@ -481,10 +481,11 @@ pub struct ReasoningConfig {
     /// an API key).
     #[serde(default = "default_reasoning_provider")]
     pub provider: String,
-    /// Anthropic model id. Defaults to `claude-opus-4-8`.
+    /// Anthropic model id. Defaults to `claude-opus-5-5`.
     #[serde(default = "default_reasoning_model")]
     pub model: String,
-    /// Max tokens for the RCA synthesis response.
+    /// Max tokens for the RCA synthesis response. Opus 5.5 thinks before it answers and the
+    /// thinking counts toward this budget, so it leaves room for both.
     #[serde(default = "default_reasoning_max_tokens")]
     pub max_tokens: u32,
     /// Env var holding the Anthropic API key.
@@ -500,11 +501,11 @@ fn default_reasoning_provider() -> String {
 }
 
 fn default_reasoning_model() -> String {
-    "claude-opus-4-8".to_string()
+    "claude-opus-5-5".to_string()
 }
 
 fn default_reasoning_max_tokens() -> u32 {
-    2048
+    4096
 }
 
 fn default_reasoning_api_key_env() -> String {

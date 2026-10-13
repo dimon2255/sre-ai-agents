@@ -214,8 +214,11 @@ that exercises it.
 
 - Implement the seven proposals above, one change at a time, re-running the
   evaluation after each.
-- Compare analysis models on the same findings (`--rca-model`), for example the
-  platform's default `claude-opus-4-8` against `claude-opus-5-5`.
+- Compare analysis models on the same findings (`--rca-model`). The platform's
+  default moved from `claude-opus-4-8` to `claude-opus-5-5` on 2026-10-13; the
+  three runs above are on `claude-opus-4-8`. On the new default only a
+  one-scenario smoke run (GS-01, judged correct, 0 failed calls) has been made;
+  the full set has not been repeated.
 - Replace hand-authored fixtures with sanitized captures from real incidents
   as they occur, and grow the set past 30 scenarios so a held-out split
   becomes meaningful.
