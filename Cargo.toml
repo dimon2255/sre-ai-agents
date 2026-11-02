@@ -148,7 +148,7 @@ subtle = "2.5"
 hex = "0.4"
 
 # NATS JetStream client (ADR-013)
-async-nats = "0.50"
+async-nats = "0.51"
 
 # Cancellation tokens for graceful shutdown
 tokio-util = { version = "0.7", features = ["rt"] }
